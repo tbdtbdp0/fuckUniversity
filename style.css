@@ -646,3 +646,5 @@ body.theme-dark.focus #toolbar .seg button { color: #555; }
 body.theme-dark.focus #toolbar .seg button.on { background: #fff; color: var(--text); }
 body.theme-dark.focus :is(.tb, .icon-btn):hover { background: rgba(0,0,0,.07); }
 body.theme-dark.focus .tb-sep { background: var(--line); }
+
+.sb-foot:empty { display: none; }

@@ -865,9 +865,10 @@ const App = {
     sb.append(h('div', { class: 'sb-head' },
       lg.icon ? h('span', { class: 'logo-icon' }, lg.icon) : h('span', { class: 'logo-mark', style: { background: lg.color || null } }),
       lg.name || '슝터디'), tree,
-      h('div', { class: 'sb-foot' },
+      // 전체 백업·파일 열기는 편집 모드에서만 (빈 칸은 남겨 둠: 사이드바 타이머·버디 자리 기준)
+      h('div', { class: 'sb-foot' }, edit ? [
         h('button', { class: 'btn', title: '모든 수업·노트·이미지를 파일 하나로 저장', onclick: exportBackup }, '전체 백업'),
-        h('button', { class: 'btn', title: '전체 백업·수업·노트 파일 열기 (여러 개 동시 선택 가능)', onclick: importProjectFile }, '파일 열기')));
+        h('button', { class: 'btn', title: '전체 백업·수업·노트 파일 열기 (여러 개 동시 선택 가능)', onclick: importProjectFile }, '파일 열기')] : null));
     tree.scrollTop = y;
     if (Buddy.el) Buddy.place();
     if (Timer.el) Timer.place();
