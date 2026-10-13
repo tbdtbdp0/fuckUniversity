@@ -326,8 +326,6 @@ function importSettings(d) {
 // 설정 → 주의사항 · 문의
 function infoPane() {
   const sec = (title, items) => [h('h4', { class: 'info-h' }, title), h('ul', { class: 'info-box' }, items.map(t => h('li', null, t)))];
-  const link = (icon, name, url, shown) => h('a', { class: 'contact', href: url, target: '_blank', rel: 'noopener' },
-    h('span', { class: 'ic' }, icon), h('span', { class: 'tx' }, h('b', null, name), h('span', null, shown)), h('span', { class: 'go' }, '↗'));
   return [
     sec('데이터 저장', [
       '모든 수업·노트·이미지는 서버가 아니라 지금 쓰는 브라우저 저장소(IndexedDB)에만 저장됩니다.',
@@ -348,12 +346,9 @@ function infoPane() {
       '교체: 파일 단위로 바꿉니다. 전체 백업 파일로 교체하면 지금 있는 수업·노트가 모두 지워지고 파일 내용만 남습니다.',
       'AI가 정리한 HTML은 편집 모드의 "AI 정리 불러오기"로 넣습니다.']),
     sec('안내사항', [
-      '업데이트 기록 등은 포스타입 및 트위터 참고.',
-      '문의 및 제보는 포스타입 메시지 혹은 트위터(@shoongtbdp)로 부탁드립니다.',
+      '업데이트 기록 등은 배포했던 두 곳(P와 T) 참고.',
+      '문의 및 제보는 같은 곳의 메시지 및 DM으로 부탁드립니다.',
       '취미 생활인지라 답장이 느릴 수 있습니다.']),
-    h('h4', { class: 'info-h' }, '연락망'),
-    link('📮', '포스타입', 'https://www.postype.com/@shoongtbdp', 'postype.com/@shoongtbdp'),
-    link('🐦', '트위터', 'https://x.com/shoongtbdp', 'x.com/shoongtbdp'),
   ].flat();
 }
 
