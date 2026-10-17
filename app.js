@@ -27,6 +27,8 @@ const S = {
   coverPalette: prefs.coverPalette || null, // 프리셋의 수업 표지 색 (새 수업에 차례로)
   gap: prefs.gap != null ? prefs.gap : 10, // 공부 모드 블록 사이 간격 (px)
   zoom: prefs.zoom || 100,          // 공부 모드 글자 배율 (%)
+  lineH: prefs.lineH || null,       // 공부 모드 줄 간격 (null = 기본 1.6)
+  bullets: Array.isArray(prefs.bullets) ? prefs.bullets : [], // 목록 기호 [1단계, 2단계, 3단계] (없으면 기본)
   enStyle: Object.assign({}, prefs.enStyle), // 영어 기본 서식 { color, size, italic, bold }
   courses: [], notes: [],
   courseId: null, noteId: null, note: null, activeBlock: null,
@@ -35,7 +37,7 @@ function savePrefs() {
   try {
     localStorage.setItem('sn-prefs', JSON.stringify({
       mode: S.mode, lang: S.lang, showEn: S.showEn, sbOpen: document.body.classList.contains('sb-open'),
-      laserColor: Laser.color, laserFinger: Laser.finger, laserWidth: Laser.width, bg: S.bg, panel: S.panel, dark: S.dark, coverShape: S.coverShape, calIcon: S.calIcon, calSync: S.calSync, calCustom: S.calCustom, userPresets: S.userPresets, calPresets: S.calPresets, pattern: S.pattern, patColor: S.patColor, logo: S.logo, coverPalette: S.coverPalette, gap: S.gap, zoom: S.zoom, enStyle: S.enStyle,
+      laserColor: Laser.color, laserFinger: Laser.finger, laserWidth: Laser.width, bg: S.bg, panel: S.panel, dark: S.dark, coverShape: S.coverShape, calIcon: S.calIcon, calSync: S.calSync, calCustom: S.calCustom, userPresets: S.userPresets, calPresets: S.calPresets, pattern: S.pattern, patColor: S.patColor, logo: S.logo, coverPalette: S.coverPalette, gap: S.gap, zoom: S.zoom, lineH: S.lineH, bullets: S.bullets, enStyle: S.enStyle,
     }));
   } catch (e) { /* ignore */ }
 }
@@ -47,6 +49,10 @@ const EN_COLORS = ['#4a5d85', '#1f2328', '#6b7280', '#1a73e8', '#188038', '#8430
 const EN_SIZES = [[0.85, '작게'], [0.92, '기본'], [1, '한국어와 같게']];
 const LANGS = [['click', '한국어 (눌러서 영어)'], ['both', '한 + 영'], ['split', '좌우 분할'], ['en', 'English']];
 const DEFAULT_GAP = 10;
+const DEFAULT_LINE_H = 1.6;
+// 목록 기호: [값, 보이는 글자]. null = 기본(1단계 ● · 2단계 ○ · 3단계 ■)
+const BULLETS = [[null, '기본'], ['•', '•'], ['·', '·'], ['◦', '◦'], ['–', '–'], ['-', '-'], ['▪', '▪'], ['▸', '▸'], ['›', '›'], ['✓', '✓'], ['none', '없음']];
+const bulletCss = v => !v ? null : v === 'none' ? 'none' : JSON.stringify(v + ' ');
 function applyLook() {
   const st = S.enStyle, r = document.documentElement.style;
   const set = (k, v) => { if (v) r.setProperty(k, v); else r.removeProperty(k); };
@@ -57,6 +63,8 @@ function applyLook() {
   set('--en-style', st.italic ? 'italic' : null);
   set('--en-weight', st.bold ? '600' : null);
   set('--blk-gap', S.gap !== DEFAULT_GAP ? S.gap + 'px' : null);
+  set('--line-h', S.lineH && S.lineH !== DEFAULT_LINE_H ? String(S.lineH) : null);
+  [0, 1, 2].forEach(i => set('--mk' + (i + 1), bulletCss(S.bullets[i])));
   document.body.classList.toggle('theme-dark', S.dark);
   const pat = patternStyle(S.pattern, S.patColor);
   set('--bg-img', pat.backgroundImage);
@@ -216,7 +224,17 @@ function viewMenu(anchor, study) {
   const save = () => { applyLook(); savePrefs(); };
   const re = fn => { fn(); save(); closePop(); viewMenu(anchor, study); };
   const label = t => h('div', { class: 'menu-label' }, t);
-  const gapVal = h('b', null, S.gap + 'px');
+  const gapVal = h('b', null, S.gap + 'px'), lhVal = h('b', null, (S.lineH || DEFAULT_LINE_H).toFixed(2));
+  // 목록 기호: 단계마다 고르기 + 직접 입력 (글자 1~2개)
+  const bulletRow = i => {
+    const cur = S.bullets[i] || null, known = BULLETS.some(([v]) => v === cur);
+    const setB = v => { S.bullets = [0, 1, 2].map(k => k === i ? v : S.bullets[k] || null); };
+    return h('div', { class: 'bullet-row' }, h('span', { class: 'hint' }, `${i + 1}단계`),
+      h('div', { class: 'bullet-opts' },
+        BULLETS.map(([v, t]) => h('button', { class: 'tb outlined' + (cur === v ? ' on' : ''), title: v ? '' : ['●', '○', '■'][i] + ' (기본)', onclick: () => re(() => setB(v)) }, t)),
+        h('input', { class: 'inp bullet-inp' + (cur && !known ? ' on' : ''), type: 'text', maxlength: 3, placeholder: '직접', value: cur && !known ? cur : '',
+          onchange: e => { const v = [...e.target.value.replace(/["\\]/g, '').trim()].slice(0, 2).join(''); re(() => setB(v || null)); } })));
+  };
   popover(anchor, h('div', { class: 'view-menu' },
     study ? [label('언어 보기'), LANGS.map(([v, t]) => h('button', {
       class: 'menu-item check' + (S.lang === v ? ' on' : ''),
@@ -235,11 +253,17 @@ function viewMenu(anchor, study) {
     h('div', { class: 'pop-row' },
       h('button', { class: 'tb outlined' + (st.italic ? ' on' : ''), onclick: () => re(() => { st.italic = !st.italic; }) }, h('i', null, '기울임')),
       h('button', { class: 'tb outlined' + (st.bold ? ' on' : ''), onclick: () => re(() => { st.bold = !st.bold; }) }, h('b', null, '굵게'))),
+    label('목록 기호 (모든 노트)'),
+    [0, 1, 2].map(bulletRow),
+    study ? [label('줄 간격'),
+      h('div', { class: 'pop-range' },
+        h('input', { type: 'range', min: 1.1, max: 2.6, step: 0.05, value: S.lineH || DEFAULT_LINE_H, oninput: e => { S.lineH = +e.target.value; lhVal.textContent = S.lineH.toFixed(2); save(); } }),
+        lhVal)] : null,
     study ? [label('블록 사이 간격'),
       h('div', { class: 'pop-range' },
         h('input', { type: 'range', min: 0, max: 200, step: 2, value: S.gap, oninput: e => { S.gap = +e.target.value; gapVal.textContent = S.gap + 'px'; save(); } }),
         gapVal)] : null,
-    h('button', { class: 'menu-item', onclick: () => re(() => { S.enStyle = {}; S.gap = DEFAULT_GAP; }) }, '기본값으로')));
+    h('button', { class: 'menu-item', onclick: () => re(() => { S.enStyle = {}; S.gap = DEFAULT_GAP; S.lineH = null; S.bullets = []; }) }, '기본값으로')));
 }
 
 // 노트 데이터 용량을 직접 계산 (글 + 이미지, 수업별 상위 3개)
@@ -253,7 +277,7 @@ async function dataUsage() {
   let total = textBytes(S.courses) - coverBytes;
   const per = S.courses.map(c => {
     const notes = App.notesOf(c.id), imgs = new Set();
-    notes.forEach(n => n.blocks.forEach(b => b.image && imgs.add(b.image)));
+    notes.forEach(n => n.blocks.forEach(b => imgsOf(b).forEach(id => imgs.add(id))));
     let n = textBytes(notes);
     imgs.forEach(id => { n += sizes.get(id) || 0; });
     return { name: c.name, n };
@@ -309,7 +333,7 @@ function exportSettings() {
 function importSettings(d) {
   if (!d || typeof d !== 'object') return;
   const p = d.prefs || {};
-  ['lang', 'showEn', 'bg', 'panel', 'dark', 'coverShape', 'calIcon', 'calSync', 'calCustom', 'userPresets', 'calPresets', 'pattern', 'patColor', 'coverPalette', 'gap', 'zoom'].forEach(k => { if (k in p) S[k] = p[k]; });
+  ['lang', 'showEn', 'bg', 'panel', 'dark', 'coverShape', 'calIcon', 'calSync', 'calCustom', 'userPresets', 'calPresets', 'pattern', 'patColor', 'coverPalette', 'gap', 'zoom', 'lineH', 'bullets'].forEach(k => { if (k in p) S[k] = p[k]; });
   if (p.logo) S.logo = Object.assign({}, p.logo);
   if (p.enStyle) S.enStyle = Object.assign({}, p.enStyle);
   if (p.laserColor) Laser.color = p.laserColor;
@@ -411,8 +435,20 @@ const App = {
     } else if (m && S.courses.some(c => c.id === m[2])) S.courseId = m[2];
     Editor.resetHistory();
     this.render();
-    $('#scroller').scrollTop = 0;
+    Anchor.cancel();
+    // 캘린더를 닫고(또는 뒤로 가기로) 보던 화면으로 돌아오면 보던 위치도 그대로
+    const back = this.calBack, here = location.hash || '#/';
+    if (S.view !== 'cal') this.calBack = null;
+    if (back && S.view !== 'cal' && back.hash === here) Anchor.keep({ y: back.y });
+    else $('#scroller').scrollTop = 0;
     if (innerWidth <= 900) this.toggleSidebar(false);
+  },
+  // 캘린더: 열 때 지금 화면을 기억했다가, 닫으면 그 화면으로
+  toggleCal() {
+    if (S.view === 'cal') { location.hash = this.calBack ? this.calBack.hash : '#/'; return; }
+    Editor.flush();
+    this.calBack = { hash: location.hash || '#/', y: $('#scroller').scrollTop };
+    location.hash = '#/cal';
   },
   go(kind, id) {
     const hash = kind ? `#/${kind}/${id}` : '#/';
@@ -528,7 +564,7 @@ const App = {
         h('label', { class: 'field' }, h('span', null, '이름'),
           h('input', { type: 'text', value: lg.name || '', placeholder: '슝터디', maxlength: 20, oninput: e => { lg.name = e.target.value.trim() || null; save(); } }))),
       h('p', { class: 'hint' }, '무지개 칸을 누르면 원하는 색을 직접 고를 수 있음. 화면 설정은 "전체 백업" 파일에 함께 저장되고, 불러오면 그대로 돌아옴.'),
-      h('p', { class: 'hint' }, '영어 글자 색·크기, 블록 사이 간격은 노트를 열었을 때 툴바의 "보기" 메뉴에서 바꿀 수 있음.'),
+      h('p', { class: 'hint' }, '영어 글자 색·크기, 목록 기호, 줄 간격, 블록 사이 간격은 노트를 열었을 때 툴바의 "보기" 메뉴에서 바꿀 수 있음.'),
     ];
   },
   calPane(redraw) {
@@ -883,7 +919,7 @@ const App = {
       h('div', { class: 'seg' },
         h('button', { class: S.mode === 'study' ? 'on' : '', onclick: () => this.setMode('study') }, '공부'),
         h('button', { class: S.mode === 'edit' ? 'on' : '', onclick: () => this.setMode('edit') }, '편집')),
-      h('button', { class: 'btn set-btn' + (S.view === 'cal' ? ' on' : ''), title: '공부 캘린더', onclick: () => (S.view === 'cal' ? this.go() : (location.hash = '#/cal')) }, '캘린더'),
+      h('button', { class: 'btn set-btn' + (S.view === 'cal' ? ' on' : ''), title: '공부 캘린더', onclick: () => this.toggleCal() }, '캘린더'),
       h('button', { class: 'btn set-btn', title: '설정 (화면 · 플로팅 · 주의사항)', onclick: () => this.openSettings() }, '⚙', h('span', null, ' 설정')));
   },
 
@@ -936,7 +972,7 @@ const App = {
       return;
     }
     page.append(h('div', { class: 'chapters' }, notes.map((n, i) => {
-      const figs = n.blocks.filter(b => b.type === 'image'), missing = figs.filter(b => !b.image).length;
+      const figs = n.blocks.filter(b => b.type === 'image'), missing = figs.filter(b => !imgsOf(b).length).length;
       return h('button', { class: 'chapter', onclick: () => this.go('n', n.id) },
         h('span', { class: 'no', style: { background: c.color, color: inkOn(c.color) } }, i + 1),
         h('span', { class: 'nm' }, n.title || '제목 없음',

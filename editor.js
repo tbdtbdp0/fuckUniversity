@@ -150,7 +150,9 @@ const Editor = {
 
   /* ---------- 렌더 ---------- */
   render() {
-    const page = $('#page'), sc = $('#scroller'), y = sc.scrollTop, n = S.note;
+    const page = $('#page'), n = S.note, a = Anchor.take(S.activeBlock);
+    // 다시 그리는 동안 높이가 줄어 스크롤이 위로 밀리지 않게 (이미지가 다 뜨면 풂)
+    page.style.minHeight = page.offsetHeight + 'px';
     page.className = 'paper editor' + (S.showEn ? ' show-en wide' : '');
     page.style.zoom = '';
     page.innerHTML = '';
@@ -163,7 +165,7 @@ const Editor = {
       h('button', { class: 'btn', onclick: () => this.add('text', null, true) }, '+ 텍스트 블록'),
       h('button', { class: 'btn', onclick: () => this.add('image', null, true) }, '+ 이미지 블록'),
       h('button', { class: 'btn', onclick: () => this.add('space', null, true) }, '+ 여백 블록')));
-    sc.scrollTop = y;
+    Anchor.keep(a);
   },
 
   blockEl(b) {
@@ -174,7 +176,7 @@ const Editor = {
       h('input', { value: b.foldLabel || '', placeholder: '접었을 때 보일 제목 (예: 예시, 암기할 내용)', oninput: e => { b.foldLabel = e.target.value; this.touch(); } })));
 
     if (b.type === 'toc') {
-      el.append(h('div', { class: 'toc-wrap' }, this.tocPreview()));
+      el.append(h('div', { class: 'toc-wrap' }, this.tocEdit(b)));
       return el;
     }
 
@@ -195,28 +197,25 @@ const Editor = {
       return el;
     }
 
-    if (b.type === 'image') {
-      const fig = h('div', { class: 'fig', style: { textAlign: b.align || 'center' } });
-      if (b.image) {
-        const img = h('img', { style: { width: (b.width || 80) + '%' }, alt: b.figLabel || '' });
-        Images.url(b.image).then(u => { if (u) img.src = u; });
-        fig.append(img);
-        el.append(h('div', { class: 'fig-ctl' },
-          '크기', h('input', { type: 'range', min: 10, max: 100, value: b.width || 80, oninput: e => { b.width = +e.target.value; img.style.width = b.width + '%'; this.touch(); } }),
-          ['left', 'center', 'right'].map(a => h('button', { class: 'tb outlined' + ((b.align || 'center') === a ? ' on' : ''), onclick: () => this.mut(() => { b.align = a; }) }, { left: '왼쪽', center: '가운데', right: '오른쪽' }[a])),
-          h('button', { class: 'tb outlined', onclick: () => this.pickImage(b) }, '이미지 교체')));
-      } else {
-        fig.append(h('button', { class: 'dropzone', onclick: () => this.pickImage(b) },
-          h('b', null, b.figLabel || 'Figure'),
-          h('span', null, '눌러서 이미지 선택 · 붙여넣기(Ctrl/⌘+V) · 끌어다 놓기')));
-        el.append(h('div', { class: 'fig-ctl' }, '넣을 그림 메모',
-          h('input', { type: 'text', value: b.figLabel || '', placeholder: '예: Figure 3.2 (슬라이드 14)', oninput: e => { b.figLabel = e.target.value; $('.dropzone b', el).textContent = b.figLabel || 'Figure'; this.touch(); } })));
-      }
-      el.append(fig);
-    }
-
     const ph = b.type === 'image' ? ['그림 설명·해석', 'Caption / original text'] : ['내용 입력', 'English original'];
-    el.append(h('div', { class: 'tb-grid' }, this.richEl(b, 'ko', ph[0]), this.richEl(b, 'en', ph[1])));
+    const text = h('div', { class: 'tb-grid' }, this.richEl(b, 'ko', ph[0]), this.richEl(b, 'en', ph[1]));
+    if (b.type !== 'image') { el.append(text); return el; }
+    const ids = imgsOf(b);
+    let fig;
+    if (ids.length) {
+      // 사진마다: 앞/뒤로 옮기기 · 교체 · 빼기 (블록을 고르면 사진 위에 뜸 — 자리를 차지하지 않음)
+      const B = (t, title, fn) => h('button', { class: 'tb', title, onmousedown: e => e.preventDefault(), onclick: e => { e.stopPropagation(); fn(); } }, t);
+      fig = galleryEl(b, { ctl: i => h('div', { class: 'gal-ctl' },
+        ids.length > 1 ? [B('◀', '앞으로', () => this.moveImage(b, i, -1)), B('▶', '뒤로', () => this.moveImage(b, i, 1))] : null,
+        B('교체', '이 사진 바꾸기', () => this.replaceImage(b, i)),
+        B('✕', '이 사진 빼기', () => this.removeImage(b, i))) });
+      fig.append(h('button', { class: 'gal-add', onmousedown: e => e.preventDefault(), onclick: () => this.addImages(b) }, '+ 사진 추가 (여러 장 가능)'));
+    } else {
+      fig = h('div', { class: 'fig' }, h('button', { class: 'dropzone', onclick: () => this.addImages(b) },
+        h('b', null, b.figLabel || 'Figure'),
+        h('span', null, '눌러서 이미지 선택 (여러 장 가능) · 붙여넣기(Ctrl/⌘+V) · 끌어다 놓기')));
+    }
+    el.append(...figLayout(b, fig, text));
     return el;
   },
 
@@ -242,15 +241,52 @@ const Editor = {
     this.updateHist();
     if (S.note.blocks.some(x => x.type === 'toc')) {
       clearTimeout(this.tocTimer);
-      this.tocTimer = setTimeout(() => $$('#page .toc-wrap').forEach(w => w.replaceChildren(this.tocPreview())), 300);
+      this.tocTimer = setTimeout(() => this.redrawToc(), 300);
     }
   },
-  tocPreview() {
-    return [tocEl(S.note, t => {
-      const el = $(`#page .blk[data-id="${t.blockId}"]`);
-      const target = el && ($$(TOC_SEL, el)[t.idx] || el);
-      if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }), h('div', { class: 'hint' }, '자동 목차 — 제목·소제목을 고치면 저절로 바뀜. 공부 모드에서 누르면 그 위치로 이동.')];
+  // 목차 블록만 다시 그리기 (편집 중인 블록이 화면에서 밀리지 않게)
+  redrawToc() {
+    const b = S.note && S.note.blocks.find(x => x.type === 'toc'), w = b && $(`#page .blk[data-id="${b.id}"] .toc-wrap`);
+    if (!w || w.contains(document.activeElement)) return;
+    const a = Anchor.take(S.activeBlock);
+    w.replaceChildren(...this.tocEdit(b));
+    Anchor.keep(a);
+  },
+  // 목차 고치기: 줄마다 글 고치기(Enter로 줄 바꿈) · 제목/소제목 단계 · 목차에서 빼기
+  tocEdit(b) {
+    const list = tocEntries(S.note, true), ov = () => b.toc || (b.toc = {});
+    const save = (t, patch) => {
+      const o = Object.assign({ hide: t.hidden }, t.edited ? ov()[t.key] : null, patch, { from: t.auto });
+      if (o.text == null || o.text.trim() === t.auto) delete o.text;
+      if (!o.hide) delete o.hide;
+      if (!o.level || o.level === t.autoLevel) delete o.level;
+      if (Object.keys(o).length > 1) ov()[t.key] = o; else delete ov()[t.key];
+      Object.assign(t, { edited: !!ov()[t.key] });
+      this.touch();
+    };
+    const redraw = () => { this.commit(); this.redrawToc(); };
+    const fit = ta => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; };
+    const B = (label, title, fn, on) => h('button', { class: 'tb' + (on ? ' on' : ''), title, onmousedown: e => e.preventDefault(), onclick: fn }, label);
+    const depth = b.tocDepth || 2;
+    const rows = list.map(t => {
+      const ta = h('textarea', { class: 'toc-inp', rows: 1, value: t.text, spellcheck: 'false', title: t.edited ? '원래 제목: ' + t.auto : null,
+        oninput: e => { fit(e.target); save(t, { text: e.target.value.replace(/\s+$/, '') }); },
+        onblur: () => setTimeout(() => this.redrawToc(), 0) });
+      requestAnimationFrame(() => fit(ta));
+      const byDepth = t.level > depth;
+      return h('div', { class: 'toc-row lv' + t.level + (t.hide ? ' off' : '') }, ta,
+        B(t.level === 1 ? '제목' : '소제목', '목차에서 제목 ↔ 소제목 (들여쓰기)', () => { save(t, { level: t.level === 1 ? 2 : 1, hide: t.hidden }); redraw(); }),
+        byDepth ? h('span', { class: 'hint' }, '제목만 보기라 빠짐') : B(t.hidden ? '보이기' : '빼기', t.hidden ? '목차에 다시 넣기' : '목차에서 빼기 (노트 내용은 그대로)', () => { save(t, { hide: !t.hidden }); redraw(); }, t.hidden),
+        t.edited ? B('↺', '원래대로 (자동 목차)', () => { delete ov()[t.key]; this.touch(); redraw(); }) : null);
+    });
+    return [
+      h('div', { class: 'toc-edit' },
+        h('div', { class: 'toc-head' }, h('b', null, '목차'),
+          h('div', { class: 'seg' }, [[2, '제목 + 소제목'], [1, '제목만']].map(([v, l]) =>
+            h('button', { class: depth === v ? 'on' : '', onmousedown: e => e.preventDefault(), onclick: () => { this.commit(); b.tocDepth = v === 2 ? undefined : v; this.touch(); this.redrawToc(); } }, l))),
+          Object.keys(b.toc || {}).length ? B('모두 원래대로', '고친 내용을 지우고 자동 목차로', () => { delete b.toc; this.touch(); redraw(); }) : null),
+        rows.length ? rows : h('div', { class: 'toc-empty' }, '아직 제목·소제목이 없음. "제목", "소제목" 서식을 쓰면 여기에 자동으로 모임.')),
+      h('div', { class: 'hint' }, '제목·소제목을 모은 자동 목차. 여기서 글을 고치거나(Enter로 줄 바꿈) 목차에서 뺄 수 있음 — 노트 내용은 그대로. 원래 제목을 고치면 그 줄은 자동으로 돌아감.')];
   },
   insertToc() {
     const ex = S.note.blocks.find(b => b.type === 'toc');
@@ -262,6 +298,7 @@ const Editor = {
     }
     const b = newBlock('toc');
     this.mut(() => { S.note.blocks.unshift(b); S.activeBlock = b.id; });
+    Anchor.cancel();
     $('#scroller').scrollTop = 0;
     if (!tocEntries(S.note).length) toast('목차 넣음 — 아직 제목·소제목이 없어서 비어 있음');
   },
@@ -428,6 +465,9 @@ const Editor = {
       T('복제', '블록 복제', () => this.duplicate(b)),
       T('접기', '공부 모드에서 접었다 펼 수 있는 블록으로 설정', () => this.mut(() => { b.fold = !b.fold; if (b.fold) b.collapsed = true; }), b.fold),
       T('페이지 나눔', 'PDF에서 이 블록부터 새 페이지', () => this.mut(() => { b.breakBefore = !b.breakBefore; }), b.breakBefore),
+      b.type === 'image' ? [
+        h('button', { class: 'tb fig-menu', title: '사진 보기 방식 · 글 배치 · 크기 · 그림 메모', onmousedown: e => e.preventDefault(), onclick: e => this.figMenu(e.currentTarget, b) }, '사진 ▾'),
+        T('텍스트로', '그림이 아니면 텍스트 블록으로 바꾸기 (글은 그대로, 사진·그림 메모는 빠짐)', () => this.toText(b))] : null,
       b.type === 'space' ? T({ blank: '무지', lined: '줄', grid: '모눈', dot: '점' }[b.pattern || 'blank'], '여백 무늬 바꾸기', () => this.mut(() => {
         const ps = ['blank', 'lined', 'grid', 'dot'];
         b.pattern = ps[(ps.indexOf(b.pattern || 'blank') + 1) % ps.length];
@@ -453,6 +493,7 @@ const Editor = {
     this.touch();
     this.render();
     this.commit();
+    Anchor.cancel(); // 새 블록으로 직접 스크롤
     const el = $(`.blk[data-id="${b.id}"]`);
     if (el) {
       el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
@@ -465,6 +506,7 @@ const Editor = {
     const a = S.note.blocks, i = a.indexOf(b), j = i + d;
     if (j < 0 || j >= a.length) return;
     this.mut(() => { a.splice(i, 1); a.splice(j, 0, b); });
+    Anchor.cancel();
     const el = $(`.blk[data-id="${b.id}"]`);
     if (el) el.scrollIntoView({ block: 'nearest' });
   },
@@ -527,24 +569,93 @@ const Editor = {
   },
 
   /* ---------- 이미지 ---------- */
-  async pickImage(b) {
-    const [f] = await pickFile('image/*');
-    if (f) { b.image = await Images.add(f); this.mut(() => { }); }
+  async addImages(b) {
+    const files = await pickFile('image/*', true);
+    if (!files.length) return;
+    const ids = [];
+    for (const f of files) ids.push(await Images.add(f));
+    this.mut(() => { setImgs(b, [...imgsOf(b), ...ids]); S.activeBlock = b.id; });
   },
+  async replaceImage(b, i) {
+    const [f] = await pickFile('image/*');
+    if (!f) return;
+    const id = await Images.add(f);
+    this.mut(() => { const l = [...imgsOf(b)]; l[i] = id; setImgs(b, l); });
+  },
+  removeImage(b, i) { this.mut(() => { const l = [...imgsOf(b)]; l.splice(i, 1); setImgs(b, l); }); },
+  moveImage(b, i, d) {
+    const l = [...imgsOf(b)], j = (i + d + l.length) % l.length;
+    [l[i], l[j]] = [l[j], l[i]];
+    this.mut(() => setImgs(b, l));
+  },
+  // 이미지 블록 → 텍스트 블록 (AI가 figure로 잘못 나눈 블록을 글만 남기기)
+  async toText(b) {
+    const n = imgsOf(b).length;
+    if (n && !await askConfirm('텍스트 블록으로 바꾸기', `넣어 둔 사진 ${n}장과 그림 메모가 빠지고 글만 남음. (↶ 되돌리기 가능)`, '바꾸기')) return;
+    this.mut(() => { b.type = 'text'; ['image', 'images', 'width', 'align', 'figLabel', 'view', 'cols', 'layout'].forEach(k => delete b[k]); });
+    toast('텍스트 블록으로 바꿈 (↶ 로 되돌리기)');
+  },
+  // 사진 ▾ : 보기 방식 · 격자 칸 수 · 글 배치 · 크기 · 정렬 · 그림 메모
+  figMenu(anchor, b) {
+    const re = fn => {
+      closePop();
+      this.mut(fn);
+      const a = $(`#page .blk[data-id="${b.id}"] .fig-menu`);
+      if (a) this.figMenu(a, b);
+    };
+    const label = t => h('div', { class: 'menu-label' }, t);
+    const opt = (cur, list, set) => list.map(([v, t]) => h('button', { class: 'menu-item check' + (cur === v ? ' on' : ''), onclick: () => re(() => set(v)) }, t));
+    const n = imgsOf(b).length, side = figSide(b), wVal = h('b', null, (b.width || 80) + '%');
+    popover(anchor, h('div', { class: 'view-menu' },
+      label('그림 메모 (어떤 그림을 넣을지)'),
+      h('div', { class: 'pop-row' }, h('input', { class: 'inp', type: 'text', value: b.figLabel || '', placeholder: '예: Figure 3.2 (슬라이드 14)', oninput: e => {
+        b.figLabel = e.target.value;
+        const z = $(`#page .blk[data-id="${b.id}"] .dropzone b`);
+        if (z) z.textContent = b.figLabel || 'Figure';
+        this.touch();
+      } })),
+      label(`사진 보기 방식` + (n > 1 ? ` (${n}장)` : '')),
+      opt(b.view || 'stack', FIG_VIEWS, v => { b.view = v === 'stack' ? undefined : v; }),
+      (b.view === 'grid') ? h('div', { class: 'seg pop-seg' }, [2, 3, 4].map(c => h('button', { class: (b.cols || 2) === c ? 'on' : '', onclick: () => re(() => { b.cols = c === 2 ? undefined : c; }) }, `${c}칸`))) : null,
+      label('사진과 글 배치'),
+      opt(b.layout || 'top', FIG_LAYOUTS, v => {
+        const was = figSide(b);
+        b.layout = v === 'top' ? undefined : v;
+        // 옆에 둘 때는 사진 칸을 반 정도로
+        if (figSide(b) && !was && (b.width || 80) > 60) b.width = 45;
+        if (!figSide(b) && was && (b.width || 80) < 40) b.width = 80;
+      }),
+      label(side ? '사진 칸 너비' : '사진 크기'),
+      h('div', { class: 'pop-range' }, h('input', { type: 'range', min: 10, max: side ? 80 : 100, value: b.width || 80, oninput: e => {
+        b.width = +e.target.value;
+        wVal.textContent = b.width + '%';
+        const el = $(`#page .blk[data-id="${b.id}"]`);
+        if (el) {
+          if (side) $$('.fig-lay', el).forEach(x => x.style.setProperty('--fig-w', b.width + '%'));
+          else $$('.gal', el).forEach(x => { x.style.width = b.width + '%'; });
+        }
+        this.touch();
+      } }), wVal),
+      side ? null : h('div', { class: 'seg pop-seg' }, ['left', 'center', 'right'].map(a => h('button', { class: (b.align || 'center') === a ? 'on' : '', onclick: () => re(() => { b.align = a; }) }, { left: '왼쪽', center: '가운데', right: '오른쪽' }[a]))),
+      h('button', { class: 'menu-item', onclick: () => { closePop(); this.addImages(b); } }, '+ 사진 추가 (여러 장)')));
+  },
+  // 붙여넣기·끌어다 놓기: 이미지 블록이면 그 블록에 사진을 더하고, 아니면 아래에 새 이미지 블록 (여러 장이면 한 블록에)
   async insertImages(files, targetId) {
-    let ref = targetId || S.activeBlock;
-    for (const f of files) {
-      const id = await Images.add(f);
-      const t = this.block(ref);
-      if (t && t.type === 'image' && !t.image) { t.image = id; continue; }
-      const blocks = S.note.blocks, nb = newBlock('image', { image: id });
-      const i = blocks.findIndex(x => x.id === ref);
-      blocks.splice(i < 0 ? blocks.length : i + 1, 0, nb);
-      ref = nb.id;
+    const ref = targetId || S.activeBlock, ids = [];
+    for (const f of files) ids.push(await Images.add(f));
+    this.commit();
+    let t = this.block(ref);
+    if (t && t.type === 'image') setImgs(t, [...imgsOf(t), ...ids]);
+    else {
+      const blocks = S.note.blocks, i = blocks.findIndex(x => x.id === ref);
+      t = newBlock('image');
+      setImgs(t, ids);
+      blocks.splice(i < 0 ? blocks.length : i + 1, 0, t);
     }
-    S.activeBlock = ref;
+    S.activeBlock = t.id;
     this.touch();
     this.render();
+    this.commit();
   },
   onPaste(e) {
     if (S.mode !== 'edit' || !S.note || e.target.closest('.modal')) return;

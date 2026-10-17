@@ -41,7 +41,8 @@ body:not(.sb-open) #sidebar { margin-left: -260px; }
   background: var(--panel); border-bottom: 1px solid var(--line); min-height: 0;
 }
 #toolbar:empty { display: none; }
-#scroller { flex: 1; overflow-y: auto; padding: 24px 16px 120px; -webkit-overflow-scrolling: touch; }
+/* overflow-anchor: none — 브라우저 자동 보정 대신 Anchor(study.js)가 직접 맞춤 (아이패드 Safari와 똑같이 동작하게) */
+#scroller { flex: 1; overflow-y: auto; padding: 24px 16px 120px; -webkit-overflow-scrolling: touch; overflow-anchor: none; }
 
 @media (max-width: 900px) {
   #sidebar { position: fixed; z-index: 40; top: 0; bottom: 0; left: 0; box-shadow: 4px 0 24px rgba(0,0,0,.15); }
@@ -99,7 +100,8 @@ body:not(.sb-open) #sidebar { margin-left: -260px; }
 .tb.outlined { border-color: var(--line); background: #fff; }
 .tb-sep { width: 1px; height: 22px; background: var(--line); margin: 0 4px; }
 .tb-space { flex: 1; }
-#save-status { font-size: 12px; color: var(--muted); padding: 0 4px; }
+/* 글자 수가 바뀌어도 툴바 줄바꿈이 달라지지 않게 (편집 중 화면이 위아래로 튀는 것 방지) */
+#save-status { font-size: 12px; color: var(--muted); padding: 0 4px; min-width: 8.5em; white-space: nowrap; text-align: right; }
 .swatch { width: 26px; height: 26px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px #ccc; padding: 0; }
 .swatch.on { box-shadow: 0 0 0 2px var(--accent); }
 .swatch.none { background: linear-gradient(135deg, #fff 45%, #d93025 45% 55%, #fff 55%); }
@@ -265,6 +267,10 @@ body:not(.sb-open) #sidebar { margin-left: -260px; }
 .rich h4 { font-size: 1em; margin: .4em 0 .2em; }
 .rich p { margin: .3em 0; }
 .rich ul, .rich ol { margin: .25em 0; padding-left: 1.5em; }
+/* 목록 기호: 보기 서식에서 단계별로 고름 (--mk1~3) */
+.rich ul { list-style-type: var(--mk1, disc); }
+.rich ul ul { list-style-type: var(--mk2, circle); }
+.rich ul ul ul { list-style-type: var(--mk3, square); }
 .rich li { margin: .16em 0; }
 .rich mark { background: #fff3a3; color: inherit; padding: 0 2px; border-radius: 2px; }
 .rich code { background: #f2f1ec; border-radius: 4px; padding: 0 4px; font-size: .92em; }
@@ -291,6 +297,21 @@ body.tbl-resizing, body.tbl-resizing * { user-select: none; -webkit-user-select:
 .toc-empty { color: var(--muted); font-size: .9em; }
 .pop .toc { border: 0; background: none; padding: 4px 8px; max-width: 340px; max-height: 60vh; overflow-y: auto; }
 .blk-toc .hint { margin-top: 6px; }
+/* 편집 모드 목차 고치기 */
+.toc-edit { background: #faf9f5; border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px 12px; }
+.toc-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+.toc-head .seg button { font-size: 12.5px; padding: 2px 10px; }
+.toc-row { display: flex; align-items: flex-start; gap: 4px; margin: 2px 0; }
+.toc-row.lv2 { padding-left: 1.3em; }
+.toc-row .tb { height: 28px; font-size: 12.5px; padding: 0 7px; flex: none; }
+.toc-row .hint { font-size: 12px; padding: 5px 4px; flex: none; }
+.toc-inp { flex: 1; min-width: 0; resize: none; overflow: hidden; border: 1px solid transparent; border-radius: 6px; background: none;
+  padding: 3px 7px; line-height: 1.45; font-size: 14.5px; outline: 0; }
+.toc-row.lv1 .toc-inp { font-weight: 600; }
+.toc-inp:hover { border-color: var(--line); background: #fff; }
+.toc-inp:focus { border-color: #b9c0f5; background: #fff; }
+.toc-row.off .toc-inp { color: #b5b2a8; text-decoration: line-through; }
+.toc li { white-space: pre-line; }
 .toc-flash { animation: toc-flash 1.6s ease-out; border-radius: 4px; }
 @keyframes toc-flash { 0%, 30% { background: #fff3a3; } 100% { background: transparent; } }
 /* 표 크기 고르기 */
@@ -345,10 +366,43 @@ body.blk-dragging, body.blk-dragging * { cursor: grabbing !important; user-selec
 }
 .dropzone b { color: #555; }
 .blk.dragover .dropzone, .blk.dragover { border-color: var(--accent); }
-.fig-ctl { display: none; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; color: var(--muted); margin-bottom: 8px; }
-.blk.active .fig-ctl { display: flex; }
-.fig-ctl input[type=range] { width: 140px; }
-.fig-ctl input[type=text] { border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; width: 170px; }
+/* 이미지 블록: 사진 여러 장 (세로로 · 격자 · 슬라이드) */
+.gal { display: inline-block; vertical-align: top; text-align: left; max-width: 100%; }
+.gal-item { position: relative; }
+.gal-item img { display: block; width: 100%; }
+.gal-stack .gal-item + .gal-item { margin-top: 8px; }
+.gal-grid { display: inline-grid; grid-template-columns: repeat(var(--cols, 2), minmax(0, 1fr)); gap: 8px; align-items: start; }
+.gal-track { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; border-radius: 4px; }
+.gal-track::-webkit-scrollbar { display: none; }
+.gal-track > .gal-item { flex: 0 0 100%; scroll-snap-align: start; display: flex; align-items: flex-start; justify-content: center; }
+.gal-track > .gal-item img { width: auto; max-width: 100%; max-height: 70vh; margin: 0 auto; }
+.gal-bar { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 4px; font-size: 13px; color: var(--muted); }
+.gal-nav { border: 1px solid var(--line); background: #fff; border-radius: 50%; width: 30px; height: 30px; padding: 0; font-size: 18px; line-height: 1; color: #555; }
+.gal-nav:hover { border-color: #c7c3b8; }
+.gal-ctl { display: none; position: absolute; top: 6px; right: 6px; gap: 2px; background: rgba(255,255,255,.94); border: 1px solid var(--line); border-radius: 8px; padding: 2px; box-shadow: 0 2px 8px rgba(0,0,0,.12); }
+.gal-ctl .tb { height: 26px; min-width: 26px; font-size: 12.5px; padding: 0 6px; }
+.blk.active .gal-ctl, .gal-item:hover .gal-ctl { display: flex; }
+.gal-add { display: block; margin: 6px auto 0; border: 1px dashed #c9c5ba; background: none; border-radius: 8px; padding: 3px 12px; font-size: 12.5px; color: var(--muted); }
+.gal-add:hover { border-color: var(--accent); color: var(--accent); }
+/* 사진과 글을 옆으로 나란히 */
+.fig-lay { display: grid; grid-template-columns: var(--fig-w, 45%) minmax(0, 1fr); gap: 16px; align-items: start; }
+.fig-lay.lay-right { grid-template-columns: minmax(0, 1fr) var(--fig-w, 45%); }
+.fig-lay.lay-right > .fig { order: 2; }
+.fig-lay > .fig { margin: 0; }
+.fig-lay > .fig .gal { width: 100%; }
+@media (max-width: 640px) {
+  .fig-lay, .fig-lay.lay-right { grid-template-columns: 1fr; gap: 8px; }
+  .fig-lay.lay-right > .fig { order: 0; }
+}
+.tb-grid + .fig, .sblk > .rich + .fig, .sblk > .split + .fig, .fold-body > .rich + .fig, .fold-body > .split + .fig { margin: 8px 0 0; }
+.pop .inp { padding: 5px 9px; font-size: 14px; }
+.bullet-row { display: flex; align-items: flex-start; gap: 6px; padding: 2px 10px 4px; }
+.bullet-row > .hint { flex: none; width: 34px; padding-top: 4px; font-size: 12px; }
+.bullet-opts { display: flex; flex-wrap: wrap; gap: 3px; }
+.bullet-opts .tb { height: 26px; min-width: 26px; padding: 0 6px; font-size: 14px; }
+.bullet-opts .tb.on { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.inp.bullet-inp { width: 48px; height: 26px; padding: 0 4px; text-align: center; font-size: 13px; }
+.inp.bullet-inp.on { border-color: var(--accent); }
 .space { border-radius: 6px; position: relative; }
 .editor .space { border: 1px dashed #cfccc3; }
 .editor .space::after { content: "필기 여백"; position: absolute; left: 10px; top: 6px; font-size: 12px; color: #c2beb3; }
@@ -363,6 +417,7 @@ body.blk-dragging, body.blk-dragging * { cursor: grabbing !important; user-selec
 /* ---------- study ---------- */
 .sblk { margin: 10px 0; }
 .study .sblk { margin: var(--blk-gap, 10px) 0; }
+.paper.study { line-height: var(--line-h, 1.6); }
 .sblk-image .fig { margin-bottom: 6px; }
 .fig-missing { border: 1px dashed #cfccc3; border-radius: 8px; padding: 14px; color: var(--muted); text-align: center; font-size: 13px; }
 .en-line { display: block; color: var(--en); font-size: var(--en-size, .92em); font-weight: var(--en-weight, 400); font-style: var(--en-style, normal); }
@@ -403,7 +458,8 @@ body.laser-on #scroller { cursor: crosshair; -webkit-user-select: none; user-sel
   }
   #print-root .pb-before { break-before: page; page-break-before: always; }
   #print-root.avoid .sblk { break-inside: avoid; page-break-inside: avoid; }
-  #print-root li, #print-root .fig, #print-root tr { break-inside: avoid; page-break-inside: avoid; }
+  #print-root li, #print-root .gal-item, #print-root tr { break-inside: avoid; page-break-inside: avoid; }
+  #print-root .gal-stack .gal-item + .gal-item { margin-top: 6pt; }
   #print-root h1, #print-root h2, #print-root h3, #print-root h4, #print-root .fold-head { break-after: avoid; page-break-after: avoid; }
   #print-root .sblk { margin: 7pt 0; }
   #print-root .doc-title { font-size: 1.7em; margin-bottom: 10pt; }

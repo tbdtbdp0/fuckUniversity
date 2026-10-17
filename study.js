@@ -34,16 +34,24 @@ function buildMerged(ko, en) {
   return wrap;
 }
 
-/* ---------- 자동 목차: 블록 안의 제목(h1·h2)·소제목(h3)을 모음 ---------- */
+/* ---------- 자동 목차: 블록 안의 제목(h1·h2)·소제목(h3)을 모음 ----------
+   목차 블록의 b.toc = { '블록id:순번': { from: 원래 제목, text?, hide?, level? } } 으로 고쳐 쓸 수 있음.
+   원래 제목(from)이 바뀌면 고친 내용은 무시하고 자동으로 돌아감 (엉뚱한 줄에 붙지 않게). */
 const TOC_SEL = 'h1,h2,h3';
-function tocEntries(note) {
+function tocEntries(note, all) {
+  const tb = note.blocks.find(b => b.type === 'toc'), ov = (tb && tb.toc) || {}, depth = (tb && tb.tocDepth) || 2;
   const out = [];
   for (const b of note.blocks) {
     if (b.type === 'space' || b.type === 'toc') continue;
     const d = h('div', { html: htmlText(b.ko) ? b.ko : (b.en || '') });
     $$(TOC_SEL, d).forEach((el, idx) => {
       const text = el.textContent.trim();
-      if (text) out.push({ blockId: b.id, idx, level: el.tagName === 'H3' ? 2 : 1, text });
+      if (!text) return;
+      const key = b.id + ':' + idx, autoLevel = el.tagName === 'H3' ? 2 : 1, o = ov[key] && ov[key].from === text ? ov[key] : null;
+      const e = { blockId: b.id, idx, key, auto: text, autoLevel, edited: !!o,
+        text: o && o.text != null ? o.text : text, level: (o && o.level) || autoLevel, hidden: !!(o && o.hide) };
+      e.hide = e.hidden || e.level > depth; // hidden: 직접 뺀 줄, level > depth: "제목만"이라 빠진 줄
+      if (all || !e.hide) out.push(e);
     });
   }
   return out;
@@ -58,6 +66,76 @@ function tocEl(note, onPick) {
         onPick ? h('a', { href: '#', onclick: e => { e.preventDefault(); onPick(t); } }, t.text) : t.text)))
       : h('div', { class: 'toc-empty' }, '아직 제목·소제목이 없음. 편집 모드에서 "제목", "소제목" 서식을 쓰면 여기에 자동으로 모임.'));
 }
+
+/* ---------- 이미지 블록: 사진 여러 장 (세로로 · 격자 · 슬라이드) + 글과의 배치 ---------- */
+const FIG_VIEWS = [['stack', '세로로 나열'], ['grid', '격자 (콜라주)'], ['slide', '슬라이드']];
+const FIG_LAYOUTS = [['top', '사진 위 · 글 아래'], ['bottom', '글 위 · 사진 아래'], ['left', '사진 왼쪽 · 글 오른쪽'], ['right', '글 왼쪽 · 사진 오른쪽']];
+const figSide = b => b.layout === 'left' || b.layout === 'right';
+// o = { print, pending[], ctl(i) → 사진마다 얹을 편집 버튼 }
+function galleryEl(b, o = {}) {
+  const ids = imgsOf(b), view = o.print && b.view === 'slide' ? 'grid' : (b.view || 'stack');
+  const items = ids.map((id, i) => {
+    const img = Images.img(id, { alt: b.figLabel || '' });
+    if (o.pending) o.pending.push(img._ready);
+    return h('div', { class: 'gal-item' }, img, o.ctl ? o.ctl(i) : null);
+  });
+  const box = h('div', { class: 'gal gal-' + view });
+  box.style.setProperty('--cols', Math.min(b.cols || 2, ids.length || 1));
+  if (!figSide(b)) box.style.width = (b.width || 80) + '%';
+  if (view === 'slide' && ids.length > 1) {
+    const track = h('div', { class: 'gal-track' }, items), cnt = h('span', { class: 'gal-cnt' }, `1 / ${ids.length}`);
+    const at = () => Math.round(track.scrollLeft / Math.max(1, track.clientWidth));
+    const go = d => track.scrollTo({ left: Math.max(0, Math.min(ids.length - 1, at() + d)) * track.clientWidth, behavior: 'smooth' });
+    track.addEventListener('scroll', () => { cnt.textContent = `${at() + 1} / ${ids.length}`; }, { passive: true });
+    const nav = (d, t) => h('button', { class: 'gal-nav', title: d < 0 ? '이전 사진' : '다음 사진', onmousedown: e => e.preventDefault(), onclick: e => { e.stopPropagation(); go(d); } }, t);
+    box.append(track, h('div', { class: 'gal-bar' }, nav(-1, '‹'), cnt, nav(1, '›')));
+  } else box.append(...items);
+  return h('div', { class: 'fig', style: { textAlign: figSide(b) ? 'center' : (b.align || 'center') } }, box);
+}
+// 사진과 글을 b.layout대로 배치. 반환은 노드 배열
+function figLayout(b, fig, text) {
+  const lay = b.layout || 'top';
+  if (!text || !fig || lay === 'top') return [fig, text];
+  if (lay === 'bottom') return [text, fig];
+  const box = h('div', { class: 'fig-lay lay-' + lay }, fig, text);
+  box.style.setProperty('--fig-w', (b.width || 45) + '%');
+  return [box];
+}
+
+/* ---------- 다시 그릴 때 보던 블록을 화면의 같은 자리에 (이미지가 늦게 떠서 밀려도) ---------- */
+const Anchor = {
+  tok: 0,
+  // prefer: 화면에 보이면 이 블록 기준 (편집 중인 블록)
+  take(prefer) {
+    const sc = $('#scroller'), r = sc.getBoundingClientRect(), els = $$('#page > [data-id]');
+    const vis = x => { const q = x.getBoundingClientRect(); return q.bottom > r.top + 1 && q.top < r.bottom - 1; };
+    const el = (prefer && els.find(x => x.dataset.id === prefer && vis(x))) || els.find(vis);
+    return el ? { id: el.dataset.id, off: el.getBoundingClientRect().top - r.top } : null;
+  },
+  // a = take() 결과 또는 { y } (그 스크롤 위치로). 그 사이 직접 스크롤(휠·터치·키·스크롤바)하면 그만둠
+  keep(a) {
+    const page = $('#page'), sc = $('#scroller'), tok = ++this.tok;
+    const stop = () => { if (tok === this.tok) this.cancel(); };
+    const evs = ['wheel', 'touchstart', 'pointerdown', 'keydown'];
+    evs.forEach(k => sc.addEventListener(k, stop, { passive: true, once: true }));
+    const fix = () => {
+      if (tok !== this.tok || !a) return;
+      if (a.y != null) { sc.scrollTop = a.y; return; }
+      const el = $$('#page > [data-id]').find(x => x.dataset.id === a.id);
+      if (el) sc.scrollTop += el.getBoundingClientRect().top - sc.getBoundingClientRect().top - a.off;
+    };
+    fix();
+    requestAnimationFrame(fix);
+    const imgs = $$('img', page).filter(i => i._ready);
+    imgs.forEach(i => i._ready.then(fix)); // 한 장씩 뜰 때마다 다시 맞춤
+    Promise.race([Promise.all(imgs.map(i => i._ready)), new Promise(r => setTimeout(r, 4000))]).then(() => {
+      fix();
+      evs.forEach(k => sc.removeEventListener(k, stop));
+      if (tok === this.tok) page.style.minHeight = '';
+    });
+  },
+  cancel() { this.tok++; $('#page').style.minHeight = ''; },
+};
 
 const ZOOMS = [80, 90, 100, 115, 130, 150, 175, 200];
 
@@ -83,20 +161,14 @@ const Study = {
       } else if (b.type === 'toc') {
         body.push(tocEl(note, o.print ? null : t => this.jump(t)));
       } else {
-        if (b.type === 'image') {
-          if (b.image) {
-            const img = h('img', { style: { width: (b.width || 80) + '%' }, alt: b.figLabel || '' });
-            const p = Images.url(b.image).then(u => { if (u) img.src = u; });
-            if (o.pending) o.pending.push(p);
-            body.push(h('div', { class: 'fig', style: { textAlign: b.align || 'center' } }, img));
-          } else if (!o.print) {
-            body.push(h('div', { class: 'fig-missing' }, (b.figLabel || 'Figure') + ' — 이미지 미삽입 (편집 모드에서 추가)'));
-          } else if (b.figLabel) {
-            body.push(h('div', { class: 'fig-missing' }, b.figLabel));
-          }
-        }
         const t = this.textPart(b, o.lang);
-        if (t) body.push(t);
+        let fig = null;
+        if (b.type === 'image') {
+          if (imgsOf(b).length) fig = galleryEl(b, { print: o.print, pending: o.pending });
+          else if (!o.print) fig = h('div', { class: 'fig-missing' }, (b.figLabel || 'Figure') + ' — 이미지 미삽입 (편집 모드에서 추가)');
+          else if (b.figLabel) fig = h('div', { class: 'fig-missing' }, b.figLabel);
+        }
+        body.push(...figLayout(b, fig, t).filter(Boolean));
       }
       if (!b.fold) { el.append(...body); return el; }
       const open = o.print ? (o.expand || !b.collapsed) : !b.collapsed;
@@ -113,13 +185,15 @@ const Study = {
   },
 
   render() {
-    const page = $('#page'), n = S.note, course = S.courses.find(c => c.id === n.courseId);
+    const page = $('#page'), n = S.note, course = S.courses.find(c => c.id === n.courseId), a = Anchor.take();
+    page.style.minHeight = page.offsetHeight + 'px';
     page.className = `paper study lang-${S.lang}` + (S.lang === 'split' ? ' wide' : '');
     page.style.zoom = S.zoom === 100 ? '' : S.zoom / 100;
     page.innerHTML = '';
     page.append(h('div', { class: 'doc-course' }, course ? course.name : ''), h('h1', { class: 'doc-title' }, n.title || '제목 없음'));
     if (!n.blocks.length) page.append(h('div', { class: 'empty' }, '아직 내용이 없음. 위에서 "편집" 모드로 바꿔서 내용을 넣으세요.'));
     page.append(...this.build(n, { lang: S.lang }));
+    Anchor.keep(a);
   },
 
   onClick(e) {

@@ -92,7 +92,7 @@ function buildPrompt(course, chapter) {
 /* ---------- AI HTML → 블록 ---------- */
 function newBlock(type, extra) {
   const b = { id: uid(), type, ko: '', en: '' };
-  if (type === 'image') Object.assign(b, { image: null, width: 80, align: 'center', figLabel: '' });
+  if (type === 'image') Object.assign(b, { image: null, images: [], width: 80, align: 'center', figLabel: '' });
   if (type === 'space') Object.assign(b, { height: 140, pattern: 'blank' });
   return Object.assign(b, extra);
 }
@@ -350,10 +350,10 @@ function openImportAI() {
 /* ---------- 프로젝트 파일 (.snote.json) ---------- */
 async function collectImages(notes) {
   const images = {};
-  for (const n of notes) for (const b of n.blocks) {
-    if (!b.image || images[b.image]) continue;
-    const rec = await DB.get('images', b.image);
-    if (rec) images[b.image] = await blobToDataURL(rec.blob);
+  for (const n of notes) for (const b of n.blocks) for (const id of imgsOf(b)) {
+    if (images[id]) continue;
+    const rec = await DB.get('images', id);
+    if (rec) images[id] = await blobToDataURL(rec.blob);
   }
   return images;
 }
@@ -533,7 +533,7 @@ const PAPER = {
   custom: [210, 297, '직접 입력'],
 };
 function pageDefaults(note) {
-  return Object.assign({ size: 'A4', orient: 'portrait', margin: 15, cw: 210, ch: 297, avoid: true, lang: 'ko', expand: true, fontPt: 11 }, note.page);
+  return Object.assign({ size: 'A4', orient: 'portrait', margin: 15, cw: 210, ch: 297, avoid: true, lang: 'ko', expand: true, fontPt: 11, lineH: S.lineH || 1.55 }, note.page);
 }
 
 function openPdfDialog() {
@@ -545,6 +545,7 @@ function openPdfDialog() {
   const custom = h('div', { class: 'row' }, h('label', { class: 'field' }, h('span', null, '너비 (mm)'), cw), h('label', { class: 'field' }, h('span', null, '높이 (mm)'), ch));
   const margin = h('input', { type: 'number', value: p.margin, min: 0, max: 50 });
   const fontPt = h('input', { type: 'number', value: p.fontPt, min: 7, max: 20, step: 0.5 });
+  const lineH = h('input', { type: 'number', value: p.lineH, min: 1, max: 3, step: 0.05 });
   const lang = sel([['ko', '한국어만'], ['both', '한국어 + 영어 (줄마다 아래에)'], ['split', '좌우 분할 (한국어 | 영어)'], ['en', '영어만']], p.lang);
   const expand = h('input', { type: 'checkbox', checked: p.expand });
   const avoid = h('input', { type: 'checkbox', checked: p.avoid });
@@ -552,13 +553,14 @@ function openPdfDialog() {
   size.onchange = showCustom;
   showCustom();
   const nBreaks = note.blocks.filter(b => b.breakBefore).length;
-  const read = () => ({ size: size.value, orient: orient.value, cw: +cw.value || 210, ch: +ch.value || 297, margin: +margin.value || 0, fontPt: +fontPt.value || 11, lang: lang.value, expand: expand.checked, avoid: avoid.checked });
+  const read = () => ({ size: size.value, orient: orient.value, cw: +cw.value || 210, ch: +ch.value || 297, margin: +margin.value || 0, fontPt: +fontPt.value || 11, lineH: Math.min(3, Math.max(1, +lineH.value || 1.55)), lang: lang.value, expand: expand.checked, avoid: avoid.checked });
   const m = openModal({
     title: 'PDF로 내보내기',
     body: h('div', null,
       h('div', { class: 'row' }, h('label', { class: 'field' }, h('span', null, '페이지 크기·비율'), size), h('label', { class: 'field' }, h('span', null, '방향'), orient)),
       custom,
-      h('div', { class: 'row' }, h('label', { class: 'field' }, h('span', null, '여백 (mm)'), margin), h('label', { class: 'field' }, h('span', null, '기본 글씨 크기 (pt)'), fontPt)),
+      h('div', { class: 'row' }, h('label', { class: 'field' }, h('span', null, '여백 (mm)'), margin), h('label', { class: 'field' }, h('span', null, '기본 글씨 크기 (pt)'), fontPt),
+        h('label', { class: 'field' }, h('span', null, '줄 간격 (배)'), lineH)),
       h('label', { class: 'field' }, h('span', null, '언어'), lang),
       h('label', { class: 'check' }, expand, '접기 블록을 모두 펼쳐서 내보내기'),
       h('label', { class: 'check' }, avoid, '블록이 페이지 경계에서 잘리지 않게 (통째로 다음 페이지로)'),
@@ -580,7 +582,7 @@ async function printNote(note) {
   let [w, ht] = p.size === 'custom' ? [p.cw, p.ch] : PAPER[p.size];
   if (p.orient === 'landscape') [w, ht] = [Math.max(w, ht), Math.min(w, ht)];
   else[w, ht] = [Math.min(w, ht), Math.max(w, ht)];
-  $('#page-style').textContent = `@page { size: ${w}mm ${ht}mm; margin: ${p.margin}mm; } @media print { #print-root { font-size: ${p.fontPt}pt; } }`;
+  $('#page-style').textContent = `@page { size: ${w}mm ${ht}mm; margin: ${p.margin}mm; } @media print { #print-root { font-size: ${p.fontPt}pt; line-height: ${p.lineH}; } }`;
   const root = $('#print-root');
   const course = S.courses.find(c => c.id === note.courseId);
   const pending = [];
