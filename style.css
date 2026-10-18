@@ -382,6 +382,7 @@ body.blk-dragging, body.blk-dragging * { cursor: grabbing !important; user-selec
 .gal-ctl { display: none; position: absolute; top: 6px; right: 6px; gap: 2px; background: rgba(255,255,255,.94); border: 1px solid var(--line); border-radius: 8px; padding: 2px; box-shadow: 0 2px 8px rgba(0,0,0,.12); }
 .gal-ctl .tb { height: 26px; min-width: 26px; font-size: 12.5px; padding: 0 6px; }
 .blk.active .gal-ctl, .gal-item:hover .gal-ctl { display: flex; }
+.fig-cap { font-size: .88em; color: #5f6470; margin-top: 4px; text-align: center; }
 .gal-add { display: block; margin: 6px auto 0; border: 1px dashed #c9c5ba; background: none; border-radius: 8px; padding: 3px 12px; font-size: 12.5px; color: var(--muted); }
 .gal-add:hover { border-color: var(--accent); color: var(--accent); }
 /* 사진과 글을 옆으로 나란히 */
@@ -422,12 +423,13 @@ body.blk-dragging, body.blk-dragging * { cursor: grabbing !important; user-selec
 .fig-missing { border: 1px dashed #cfccc3; border-radius: 8px; padding: 14px; color: var(--muted); text-align: center; font-size: 13px; }
 .en-line { display: block; color: var(--en); font-size: var(--en-size, .92em); font-weight: var(--en-weight, 400); font-style: var(--en-style, normal); }
 .en-line.en-block { margin-top: 4px; padding-left: 10px; border-left: 2px solid #cdd6ea; }
-.lang-ko .en-line { display: none; }
-.lang-click [data-has-en]:not(.rev) > .en-line { display: none; }
-.lang-click [data-has-en] { cursor: pointer; }
-.lang-click [data-has-en].rev > .en-line { background: #f1f4fb; border-radius: 4px; padding: 0 5px; }
+/* 언어 보기는 블록마다 (블록 따로 보기 설정이 있으면 그걸로) */
+.sblk.lang-ko .en-line { display: none; }
+.sblk.lang-click [data-has-en]:not(.rev) > .en-line { display: none; }
+.sblk.lang-click [data-has-en] { cursor: pointer; }
+.sblk.lang-click [data-has-en].rev > .en-line { background: #f1f4fb; border-radius: 4px; padding: 0 5px; }
 @media (hover: hover) {
-  .lang-click li[data-has-en]:hover, .lang-click p[data-has-en]:hover { text-decoration: underline dotted #b3bce0; text-underline-offset: 4px; }
+  .sblk.lang-click li[data-has-en]:hover, .sblk.lang-click p[data-has-en]:hover { text-decoration: underline dotted #b3bce0; text-underline-offset: 4px; }
 }
 .split { display: grid; grid-template-columns: 1fr 1fr; gap: 26px; }
 .split > .rich.en { border-left: 1px solid var(--line); padding-left: 22px; }
@@ -442,6 +444,26 @@ body.blk-dragging, body.blk-dragging * { cursor: grabbing !important; user-selec
 .sblk.open > .fold-head { border-radius: 8px 8px 0 0; }
 .fold-body { border: 1px solid #efece3; border-top: 0; border-radius: 0 0 8px 8px; padding: 10px 14px; }
 .sblk:not(.open) > .fold-body { display: none; }
+
+/* ---------- 페이지 넘기기 · 쪽 미리보기 ---------- */
+.pager-bar {
+  position: sticky; bottom: 10px; z-index: 5; display: flex; align-items: center; justify-content: center; gap: 6px; width: max-content;
+  margin: 28px auto 0; padding: 4px 8px; background: rgba(255,255,255,.95); border: 1px solid var(--line); border-radius: 999px; box-shadow: 0 3px 14px rgba(0,0,0,.12);
+}
+.pager-bar .tb { font-size: 18px; border-radius: 999px; }
+.pager-no { font-size: 13px; color: var(--muted); min-width: 56px; text-align: center; }
+.paper.turn-next { animation: turn-next .22s ease-out; }
+.paper.turn-prev { animation: turn-prev .22s ease-out; }
+@keyframes turn-next { from { opacity: .3; transform: translateX(40px); } to { opacity: 1; transform: none; } }
+@keyframes turn-prev { from { opacity: .3; transform: translateX(-40px); } to { opacity: 1; transform: none; } }
+.thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; }
+.thumb { border: 0; background: none; padding: 0; text-align: left; display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.thumb-view { position: relative; width: 100%; aspect-ratio: 210 / 297; overflow: hidden; border-radius: 6px; border: 2px solid var(--line); background: #fff; }
+.thumb.on .thumb-view, .thumb:hover .thumb-view { border-color: var(--accent); }
+/* 실제 쪽(860px)을 줄여서 그대로 보여줌 */
+.thumb-sheet { position: absolute; left: 0; top: 0; width: 860px; min-height: 0; box-shadow: none; border-radius: 0; transform-origin: 0 0; transform: scale(var(--thumb-k, .2)); pointer-events: none; }
+.thumb-no { font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.thumb-no b { color: var(--text); }
 
 /* ---------- laser ---------- */
 #laser { position: fixed; inset: 0; width: 100vw; height: 100dvh; pointer-events: none; z-index: 60; }

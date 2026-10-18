@@ -138,6 +138,11 @@ const Anchor = {
 };
 
 const ZOOMS = [80, 90, 100, 115, 130, 150, 175, 200];
+// 블록마다 따로 보기 설정: b.vlang(언어 보기) · b.vsize(글자 크기 %) · b.vlh(줄 간격). 없으면 노트 전체 설정을 따름
+const BLOCK_LANGS = [['ko', '한국어만'], ['click', '한국어 (눌러서 영어)'], ['both', '한 + 영'], ['split', '좌우 분할'], ['en', 'English']];
+const BLOCK_SIZES = [80, 90, 100, 110, 125, 150];
+// 그림 제목(그림 메모) 보이기: 블록 설정(b.cap) > 전체 설정(S.figCap)
+const capOn = b => b.cap != null ? b.cap : !!S.figCap;
 
 const Study = {
   textPart(b, lang) {
@@ -151,20 +156,25 @@ const Study = {
     return buildMerged(ko, en);
   },
 
-  // 노트 → 읽기용 DOM 배열. o = { lang, print, expand, pending[] }
+  // 노트 → 읽기용 DOM 배열. o = { lang, print, expand, pending[], blocks(이 블록들만, 페이지 보기) }
   build(note, o) {
-    return note.blocks.map(b => {
-      const el = h('div', { class: `sblk sblk-${b.type}` + (o.print && b.breakBefore ? ' pb-before' : ''), dataset: { id: b.id } });
+    return (o.blocks || note.blocks).map(b => {
+      const lang = b.vlang || o.lang;
+      const el = h('div', { class: `sblk sblk-${b.type} lang-${lang}` + (o.print && b.breakBefore ? ' pb-before' : ''), dataset: { id: b.id },
+        style: { fontSize: b.vsize ? b.vsize + '%' : null, lineHeight: b.vlh || null } });
       const body = [];
       if (b.type === 'space') {
         body.push(h('div', { class: 'space pat-' + (b.pattern || 'blank'), style: { height: (b.height || 140) + 'px' } }));
       } else if (b.type === 'toc') {
         body.push(tocEl(note, o.print ? null : t => this.jump(t)));
       } else {
-        const t = this.textPart(b, o.lang);
+        const t = this.textPart(b, lang);
         let fig = null;
         if (b.type === 'image') {
-          if (imgsOf(b).length) fig = galleryEl(b, { print: o.print, pending: o.pending });
+          if (imgsOf(b).length) {
+            fig = galleryEl(b, { print: o.print, pending: o.pending });
+            if (capOn(b) && b.figLabel) fig.append(h('div', { class: 'fig-cap' }, b.figLabel));
+          }
           else if (!o.print) fig = h('div', { class: 'fig-missing' }, (b.figLabel || 'Figure') + ' — 이미지 미삽입 (편집 모드에서 추가)');
           else if (b.figLabel) fig = h('div', { class: 'fig-missing' }, b.figLabel);
         }
@@ -187,17 +197,118 @@ const Study = {
   render() {
     const page = $('#page'), n = S.note, course = S.courses.find(c => c.id === n.courseId), a = Anchor.take();
     page.style.minHeight = page.offsetHeight + 'px';
-    page.className = `paper study lang-${S.lang}` + (S.lang === 'split' ? ' wide' : '');
+    const pages = S.paged ? this.pages(n) : null;
+    if (pages) S.pageIdx = Math.max(0, Math.min(pages.length - 1, S.pageIdx || 0));
+    page.className = `paper study lang-${S.lang}` + (S.lang === 'split' ? ' wide' : '') + (pages ? ' paged' : '');
     page.style.zoom = S.zoom === 100 ? '' : S.zoom / 100;
     page.innerHTML = '';
-    page.append(h('div', { class: 'doc-course' }, course ? course.name : ''), h('h1', { class: 'doc-title' }, n.title || '제목 없음'));
+    if (!pages || !S.pageIdx) page.append(h('div', { class: 'doc-course' }, course ? course.name : ''), h('h1', { class: 'doc-title' }, n.title || '제목 없음'));
     if (!n.blocks.length) page.append(h('div', { class: 'empty' }, '아직 내용이 없음. 위에서 "편집" 모드로 바꿔서 내용을 넣으세요.'));
-    page.append(...this.build(n, { lang: S.lang }));
+    page.append(...this.build(n, { lang: S.lang, blocks: pages ? pages[S.pageIdx] : null }));
+    if (pages) page.append(this.pagerBar(pages.length));
     Anchor.keep(a);
   },
 
+  /* ---------- 페이지 보기: "페이지 나눔" 단위로 한 쪽씩, 옆으로 넘기기 ---------- */
+  pages(note) {
+    const out = [[]];
+    note.blocks.forEach(b => {
+      if (b.breakBefore && out[out.length - 1].length) out.push([]);
+      out[out.length - 1].push(b);
+    });
+    return out;
+  },
+  pageOf(blockId) { return Math.max(0, this.pages(S.note).findIndex(p => p.some(b => b.id === blockId))); },
+  pagerBar(total) {
+    const B = (t, title, fn, dis) => h('button', { class: 'tb', title, disabled: dis, onclick: e => { e.stopPropagation(); fn(); } }, t);
+    return h('div', { class: 'pager-bar' },
+      B('‹', '이전 쪽 (←)', () => this.goPage(S.pageIdx - 1), S.pageIdx <= 0),
+      h('span', { class: 'pager-no' }, `${S.pageIdx + 1} / ${total}`),
+      B('›', '다음 쪽 (→)', () => this.goPage(S.pageIdx + 1), S.pageIdx >= total - 1),
+      B('▦', '페이지 미리보기', () => this.thumbs()));
+  },
+  goPage(i) {
+    const n = this.pages(S.note).length;
+    if (i < 0 || i >= n || i === S.pageIdx) return;
+    const dir = i > S.pageIdx ? 'next' : 'prev';
+    S.pageIdx = i;
+    this.render();
+    Anchor.cancel();
+    $('#scroller').scrollTop = 0;
+    const page = $('#page');
+    page.classList.remove('turn-next', 'turn-prev');
+    void page.offsetWidth;
+    page.classList.add('turn-' + dir);
+  },
+  setPaged(on) {
+    S.paged = on;
+    savePrefs();
+    if (on) {
+      // 지금 보던 블록이 든 쪽부터
+      const a = Anchor.take();
+      S.pageIdx = a ? this.pageOf(a.id) : 0;
+      if (this.pages(S.note).length < 2) toast('나뉜 쪽이 없음 — 편집 모드에서 블록을 고르고 "페이지 나눔"을 누르면 그 블록부터 다음 쪽');
+    }
+    App.renderToolbar();
+    this.render();
+    if (on) { Anchor.cancel(); $('#scroller').scrollTop = 0; }
+  },
+  // 쪽 미리보기 (굿노트처럼 한눈에 보고 눌러서 이동)
+  thumbs() {
+    const n = S.note, pages = this.pages(n), course = S.courses.find(c => c.id === n.courseId);
+    let m;
+    const grid = h('div', { class: 'thumbs' }, pages.map((bl, i) => {
+      // 쪽 이름: 첫 제목, 없으면 첫 글귀
+      const head = bl.map(b => htmlText((h('div', { html: b.ko || b.en || '' }).querySelector(TOC_SEL) || {}).innerHTML)).find(Boolean)
+        || bl.map(b => htmlText(b.ko || b.en) || b.figLabel || '').find(Boolean) || '';
+      const sheet = h('div', { class: `paper study thumb-sheet lang-${S.lang}` },
+        i === 0 ? [h('div', { class: 'doc-course' }, course ? course.name : ''), h('h1', { class: 'doc-title' }, n.title || '제목 없음')] : null,
+        this.build(n, { lang: S.lang, blocks: bl }));
+      return h('button', { class: 'thumb' + (i === (S.paged ? S.pageIdx : -1) ? ' on' : ''), onclick: () => {
+        m.close();
+        if (!S.paged) { S.paged = true; savePrefs(); App.renderToolbar(); }
+        S.pageIdx = -1;
+        this.goPage(i);
+      } }, h('div', { class: 'thumb-view' }, sheet), h('span', { class: 'thumb-no' }, h('b', null, i + 1), ' ', head));
+    }));
+    m = openModal({ title: `페이지 미리보기 (${pages.length}쪽)`, wide: true, body: h('div', null,
+      pages.length < 2 ? h('p', { class: 'hint' }, '아직 한 쪽뿐. 편집 모드에서 블록을 고르고 "페이지 나눔"을 누르면 그 블록부터 새 쪽이 됨.') : null, grid),
+    actions: [{ label: '닫기', kind: 'primary', onclick: close => close() }] });
+    requestAnimationFrame(() => $$('.thumb-view', m.box).forEach(v => v.style.setProperty('--thumb-k', v.clientWidth / 860)));
+  },
+  // 옆으로 밀어서 쪽 넘기기 (터치) · ← → 키
+  initPager() {
+    const sc = $('#scroller'), on = () => S.paged && S.mode === 'study' && S.note && !S.view;
+    let st = null;
+    sc.addEventListener('touchstart', e => {
+      st = null;
+      if (!on() || e.touches.length !== 1 || (Laser.on && Laser.blocked)) return;
+      if (e.target.closest('.gal-track, table, input, textarea, .pop')) return;
+      const t = e.touches[0];
+      st = { x: t.clientX, y: t.clientY, t: Date.now() };
+    }, { passive: true });
+    // 옆으로 미는 중에는 브라우저의 뒤로 가기·가로 스크롤 대신 쪽 넘기기로
+    sc.addEventListener('touchmove', e => {
+      if (!st || !e.cancelable) return;
+      const t = e.touches[0], dx = t.clientX - st.x, dy = t.clientY - st.y;
+      if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy) * 1.6) e.preventDefault();
+    }, { passive: false });
+    sc.addEventListener('touchend', e => {
+      if (!st || Laser.dragged || (Laser.on && Laser.blocked)) return;
+      const t = e.changedTouches[0], dx = t.clientX - st.x, dy = t.clientY - st.y;
+      st = null;
+      if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 1.6 && getSelection().isCollapsed) this.goPage(S.pageIdx + (dx < 0 ? 1 : -1));
+    }, { passive: true });
+    document.addEventListener('keydown', e => {
+      if (!on() || e.metaKey || e.ctrlKey || e.altKey || $('#modal-root').children.length) return;
+      if (e.target.closest && e.target.closest('input, textarea, select, [contenteditable]')) return;
+      if (e.key === 'ArrowRight') { e.preventDefault(); this.goPage(S.pageIdx + 1); }
+      if (e.key === 'ArrowLeft') { e.preventDefault(); this.goPage(S.pageIdx - 1); }
+    });
+  },
+
   onClick(e) {
-    if (S.mode !== 'study' || S.lang !== 'click' || Laser.dragged) return;
+    if (S.mode !== 'study' || !e.target.closest('.sblk.lang-click') || Laser.dragged) return;
     if (e.target.closest('.fold-head') || !getSelection().isCollapsed) return;
     const t = e.target.closest('[data-has-en]');
     if (t) t.classList.toggle('rev');
@@ -205,6 +316,10 @@ const Study = {
 
   // 목차에서 고른 제목으로 이동 (접힌 블록이면 펼침)
   jump(t) {
+    if (S.paged && S.mode === 'study') {
+      const i = this.pageOf(t.blockId);
+      if (i !== S.pageIdx) { S.pageIdx = i; this.render(); Anchor.cancel(); }
+    }
     const el = $(`#page [data-id="${t.blockId}"]`);
     if (!el) return;
     const b = S.note.blocks.find(x => x.id === t.blockId);
@@ -252,6 +367,9 @@ const Study = {
         h('button', { class: 'tb zoom-val', title: '눌러서 100%로', onclick: () => this.setZoom(100) }, S.zoom + '%'),
         h('button', { class: 'tb', title: '크게', onclick: () => this.stepZoom(1) }, h('b', null, '가+'))),
       h('button', { class: 'tb', title: '제목·소제목으로 바로 가기', onclick: e => popover(e.currentTarget, tocEl(S.note, t => { closePop(); this.jump(t); })) }, '목차 ▾'),
+      h('span', { class: 'tb-sep' }),
+      h('button', { class: 'tb outlined' + (S.paged ? ' on' : ''), title: '"페이지 나눔"으로 나눈 쪽을 한 쪽씩 옆으로 넘겨 보기 (← → 키, 손가락으로 밀기)', onclick: () => this.setPaged(!S.paged) }, '페이지 넘기기'),
+      h('button', { class: 'tb', title: '쪽 미리보기', onclick: () => this.thumbs() }, '▦ 미리보기'),
       hasFold ? [h('span', { class: 'tb-sep' }),
         h('button', { class: 'tb', onclick: () => this.foldAll(true) }, '모두 접기'),
         h('button', { class: 'tb', onclick: () => this.foldAll(false) }, '모두 펴기')] : null,

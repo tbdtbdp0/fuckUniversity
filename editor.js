@@ -209,6 +209,7 @@ const Editor = {
         ids.length > 1 ? [B('◀', '앞으로', () => this.moveImage(b, i, -1)), B('▶', '뒤로', () => this.moveImage(b, i, 1))] : null,
         B('교체', '이 사진 바꾸기', () => this.replaceImage(b, i)),
         B('✕', '이 사진 빼기', () => this.removeImage(b, i))) });
+      if (capOn(b) && b.figLabel) fig.append(h('div', { class: 'fig-cap' }, b.figLabel));
       fig.append(h('button', { class: 'gal-add', onmousedown: e => e.preventDefault(), onclick: () => this.addImages(b) }, '+ 사진 추가 (여러 장 가능)'));
     } else {
       fig = h('div', { class: 'fig' }, h('button', { class: 'dropzone', onclick: () => this.addImages(b) },
@@ -465,6 +466,7 @@ const Editor = {
       T('복제', '블록 복제', () => this.duplicate(b)),
       T('접기', '공부 모드에서 접었다 펼 수 있는 블록으로 설정', () => this.mut(() => { b.fold = !b.fold; if (b.fold) b.collapsed = true; }), b.fold),
       T('페이지 나눔', 'PDF에서 이 블록부터 새 페이지', () => this.mut(() => { b.breakBefore = !b.breakBefore; }), b.breakBefore),
+      b.type === 'text' || b.type === 'image' ? h('button', { class: 'tb blk-view' + (b.vlang || b.vsize || b.vlh ? ' on' : ''), title: '이 블록만 보기 설정 (언어 보기 · 글자 크기 · 줄 간격)', onmousedown: e => e.preventDefault(), onclick: e => this.blockViewMenu(e.currentTarget, b) }, '보기 ▾') : null,
       b.type === 'image' ? [
         h('button', { class: 'tb fig-menu', title: '사진 보기 방식 · 글 배치 · 크기 · 그림 메모', onmousedown: e => e.preventDefault(), onclick: e => this.figMenu(e.currentTarget, b) }, '사진 ▾'),
         T('텍스트로', '그림이 아니면 텍스트 블록으로 바꾸기 (글은 그대로, 사진·그림 메모는 빠짐)', () => this.toText(b))] : null,
@@ -592,7 +594,7 @@ const Editor = {
   async toText(b) {
     const n = imgsOf(b).length;
     if (n && !await askConfirm('텍스트 블록으로 바꾸기', `넣어 둔 사진 ${n}장과 그림 메모가 빠지고 글만 남음. (↶ 되돌리기 가능)`, '바꾸기')) return;
-    this.mut(() => { b.type = 'text'; ['image', 'images', 'width', 'align', 'figLabel', 'view', 'cols', 'layout'].forEach(k => delete b[k]); });
+    this.mut(() => { b.type = 'text'; ['image', 'images', 'width', 'align', 'figLabel', 'view', 'cols', 'layout', 'cap'].forEach(k => delete b[k]); });
     toast('텍스트 블록으로 바꿈 (↶ 로 되돌리기)');
   },
   // 사진 ▾ : 보기 방식 · 격자 칸 수 · 글 배치 · 크기 · 정렬 · 그림 메모
@@ -614,6 +616,8 @@ const Editor = {
         if (z) z.textContent = b.figLabel || 'Figure';
         this.touch();
       } })),
+      h('div', { class: 'seg pop-seg' }, [[undefined, `기본 (${S.figCap ? '보임' : '숨김'})`], [true, '제목 보이기'], [false, '숨기기']].map(([v, t]) =>
+        h('button', { class: b.cap === v ? 'on' : '', title: '그림 메모를 사진 아래 제목으로 (공부 모드 · PDF). 기본은 "보기 서식"에서 전체로 정함', onclick: () => re(() => { b.cap = v; }) }, t))),
       label(`사진 보기 방식` + (n > 1 ? ` (${n}장)` : '')),
       opt(b.view || 'stack', FIG_VIEWS, v => { b.view = v === 'stack' ? undefined : v; }),
       (b.view === 'grid') ? h('div', { class: 'seg pop-seg' }, [2, 3, 4].map(c => h('button', { class: (b.cols || 2) === c ? 'on' : '', onclick: () => re(() => { b.cols = c === 2 ? undefined : c; }) }, `${c}칸`))) : null,
@@ -637,7 +641,38 @@ const Editor = {
         this.touch();
       } }), wVal),
       side ? null : h('div', { class: 'seg pop-seg' }, ['left', 'center', 'right'].map(a => h('button', { class: (b.align || 'center') === a ? 'on' : '', onclick: () => re(() => { b.align = a; }) }, { left: '왼쪽', center: '가운데', right: '오른쪽' }[a]))),
-      h('button', { class: 'menu-item', onclick: () => { closePop(); this.addImages(b); } }, '+ 사진 추가 (여러 장)')));
+      h('button', { class: 'menu-item', onclick: () => { closePop(); this.addImages(b); } }, '+ 사진 추가 (여러 장)'),
+      label('이 노트의 모든 사진 블록 한꺼번에'),
+      h('div', { class: 'seg pop-seg' }, ['left', 'center', 'right'].map(a => h('button', { title: '모든 사진 블록 정렬', onclick: () => re(() => this.allFigs(x => { x.align = a; })) }, { left: '모두 왼쪽', center: '모두 가운데', right: '모두 오른쪽' }[a]))),
+      h('button', { class: 'menu-item', title: '크기·정렬·보기 방식·격자 칸 수·글 배치·제목 보이기를 이 블록과 똑같이', onclick: () => re(() => {
+        const keep = ['width', 'align', 'view', 'cols', 'layout', 'cap'];
+        this.allFigs(x => keep.forEach(k => { if (b[k] === undefined) delete x[k]; else x[k] = b[k]; }));
+      }) }, '이 블록 설정을 모든 사진 블록에 적용')));
+  },
+  allFigs(fn) {
+    const list = S.note.blocks.filter(x => x.type === 'image');
+    list.forEach(fn);
+    toast(`사진 블록 ${list.length}개에 적용`);
+  },
+  // 이 블록만 따로 보기 설정 (공부 모드 · PDF)
+  blockViewMenu(anchor, b) {
+    const re = fn => {
+      closePop();
+      this.mut(fn);
+      const a = $(`#page .blk[data-id="${b.id}"] .blk-view`);
+      if (a) this.blockViewMenu(a, b);
+    };
+    const label = t => h('div', { class: 'menu-label' }, t);
+    const lh = h('b', null, b.vlh ? b.vlh.toFixed(2) : '기본');
+    popover(anchor, h('div', { class: 'view-menu' },
+      label('이 블록만 언어 보기'),
+      [[undefined, '노트 설정 따름']].concat(BLOCK_LANGS).map(([v, t]) => h('button', { class: 'menu-item check' + (b.vlang === v ? ' on' : ''), onclick: () => re(() => { b.vlang = v; }) }, t)),
+      label('이 블록만 글자 크기'),
+      h('div', { class: 'seg pop-seg' }, BLOCK_SIZES.map(v => h('button', { class: (b.vsize || 100) === v ? 'on' : '', onclick: () => re(() => { b.vsize = v === 100 ? undefined : v; }) }, v + '%'))),
+      label('이 블록만 줄 간격'),
+      h('div', { class: 'pop-range' }, h('input', { type: 'range', min: 1.1, max: 2.6, step: 0.05, value: b.vlh || S.lineH || 1.6, onchange: e => re(() => { b.vlh = +e.target.value; }), oninput: e => { lh.textContent = (+e.target.value).toFixed(2); } }), lh),
+      h('div', { class: 'hint', style: { padding: '2px 10px 6px' } }, '공부 모드와 PDF에 적용. 편집 화면은 그대로.'),
+      h('button', { class: 'menu-item', onclick: () => re(() => { delete b.vlang; delete b.vsize; delete b.vlh; }) }, '이 블록 보기 설정 지우기')));
   },
   // 붙여넣기·끌어다 놓기: 이미지 블록이면 그 블록에 사진을 더하고, 아니면 아래에 새 이미지 블록 (여러 장이면 한 블록에)
   async insertImages(files, targetId) {

@@ -380,7 +380,14 @@ async function exportBackup() {
   download(new Blob([JSON.stringify(data)], { type: 'application/json' }), `슝터디-백업-${fmtDate(Date.now()).replace(/\./g, '')}.snote.json`);
 }
 
-// 파일 하나를 { kind, items:[{note, course}] } 형태로 통일 (note / course / library)
+// 노트 없이 설정만: 프롬프트 프리셋 · 버디 · 화면/타이머 설정 · 캘린더
+async function exportSystemBackup() {
+  const data = { app: 'studynote', version: 1, kind: 'settings', prompts: Prompts.list(), buddy: await Buddy.exportData(), settings: exportSettings(), calendar: Cal.exportData() };
+  download(new Blob([JSON.stringify(data)], { type: 'application/json' }), `슝터디-설정-${fmtDate(Date.now()).replace(/\./g, '')}.snote.json`);
+  toast('시스템 설정 백업 저장됨 (노트는 안 들어감)');
+}
+
+// 파일 하나를 { kind, items:[{note, course}] } 형태로 통일 (note / course / library / settings)
 function readSnote(data, fileName) {
   if (!data || data.app !== 'studynote') return null;
   const cinfo = c => c ? { name: c.name, color: c.color, coverImg: c.coverImg } : null;
@@ -394,7 +401,9 @@ function readSnote(data, fileName) {
   const corder = new Map((data.courses || []).map(c => [c.name, c.order || 0]));
   const ck = x => x.course ? corder.get(x.course.name) || 0 : 0;
   items.sort((x, y) => ck(x) - ck(y) || (x.note.order || 0) - (y.note.order || 0));
-  return { fileName, kind: data.kind === 'library' || data.kind === 'course' ? data.kind : 'note', data, items };
+  const kind = ['library', 'course', 'settings'].includes(data.kind) ? data.kind : 'note';
+  if (kind === 'note' && !items.length) return null;
+  return { fileName, kind, data, items };
 }
 
 async function importProjectFile() {
@@ -439,10 +448,11 @@ function importPlan(packs, mode) {
 }
 
 function openImportDialog(packs) {
-  const kindLabel = { note: '노트', course: '수업', library: '전체 백업' };
+  const kindLabel = { note: '노트', course: '수업', library: '전체 백업', settings: '시스템 설정' };
   const describe = p => {
     const courses = [...new Set(p.items.map(x => x.course ? x.course.name : '미분류'))];
     if (p.kind === 'note') return `노트 "${p.items[0] ? p.items[0].note.title : '?'}" (수업: ${courses[0] || '미분류'})`;
+    if (p.kind === 'settings') return '프롬프트 프리셋 · 캘린더 · 화면 · 타이머 · 버디 설정 (지금 설정을 덮어씀, 캘린더 기록은 합침)';
     if (p.kind === 'course') return `수업 "${courses[0] || '미분류'}" — 노트 ${p.items.length}개`;
     return `수업 ${courses.length}개 · 노트 ${p.items.length}개`;
   };
@@ -453,15 +463,16 @@ function openImportDialog(packs) {
     radio('merge', '합치기 (덮어쓰기)', '같은 노트는 파일 내용으로 덮어쓰고, 없는 노트는 추가. 파일에 없는 기존 노트는 그대로 둠.', true),
     radio('replace', '교체', '노트 파일 → 그 노트, 수업 파일 → 그 수업 전체, 전체 백업 → 지금 있는 모든 수업·노트를 지우고 파일 내용으로 바꿈.', false));
   const summary = h('div', { class: 'hint' });
-  const mode = () => modes.querySelector('input:checked').value;
+  const mode = () => modes.querySelector('input:checked').value, onlySettings = packs.every(p => p.kind === 'settings');
   const okBtn = () => m.box.querySelector('.modal-foot .btn.primary');
   const upd = () => {
     const pl = importPlan(packs, mode());
     summary.className = 'hint' + (pl.removed ? ' bad' : ' ok');
     summary.textContent = `새로 추가 ${pl.add}개 · 덮어쓰기/교체 ${pl.over}개` + (pl.removed ? ` · 삭제 ${pl.removed}개 (파일에 없는 기존 노트)` : '')
       + (pl.wipeAll ? ' — 전체 백업 교체라서 지금 있는 수업도 모두 정리됨' : '');
+    if (onlySettings) summary.textContent = '노트는 그대로, 설정만 바뀜';
     if (okBtn()) {
-      okBtn().textContent = mode() === 'replace' ? '교체하기' : '합치기';
+      okBtn().textContent = onlySettings ? '불러오기' : mode() === 'replace' ? '교체하기' : '합치기';
       okBtn().classList.toggle('danger-bg', !!pl.removed);
     }
   };
@@ -471,7 +482,7 @@ function openImportDialog(packs) {
     body: h('div', null,
       h('ul', { class: 'import-files' }, packs.map(p => h('li', null,
         h('span', { class: 'tag' }, kindLabel[p.kind]), h('span', { class: 'nm' }, p.fileName), h('span', { class: 'hint' }, describe(p))))),
-      h('div', { class: 'field' }, h('span', null, '불러오는 방식'), modes),
+      onlySettings ? null : h('div', { class: 'field' }, h('span', null, '불러오는 방식'), modes),
       summary),
     actions: [
       { label: '취소', onclick: close => close() },
@@ -516,6 +527,11 @@ async function applyImport(packs, plan) {
   }
   if (plan.del.size) Images.gc(S.notes).catch(() => { });
   const list = [...done.values()];
+  if (!list.length && !plan.removed) {
+    toast('시스템 설정 불러옴');
+    App.render();
+    return;
+  }
   toast(`노트 ${list.length}개 불러옴` + (plan.removed ? ` · ${plan.removed}개 삭제` : ''));
   const courseIds = new Set(list.map(n => n.courseId));
   if (list.length === 1) { S.mode = 'edit'; App.go('n', list[0].id); }

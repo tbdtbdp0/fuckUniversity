@@ -29,6 +29,9 @@ const S = {
   zoom: prefs.zoom || 100,          // 공부 모드 글자 배율 (%)
   lineH: prefs.lineH || null,       // 공부 모드 줄 간격 (null = 기본 1.6)
   bullets: Array.isArray(prefs.bullets) ? prefs.bullets : [], // 목록 기호 [1단계, 2단계, 3단계] (없으면 기본)
+  figCap: !!prefs.figCap,           // 사진 아래 그림 제목(그림 메모) 보이기 (블록마다 따로 정할 수도)
+  paged: !!prefs.paged,             // 공부 모드 페이지 넘기기 보기
+  pageIdx: 0,
   enStyle: Object.assign({}, prefs.enStyle), // 영어 기본 서식 { color, size, italic, bold }
   courses: [], notes: [],
   courseId: null, noteId: null, note: null, activeBlock: null,
@@ -37,7 +40,7 @@ function savePrefs() {
   try {
     localStorage.setItem('sn-prefs', JSON.stringify({
       mode: S.mode, lang: S.lang, showEn: S.showEn, sbOpen: document.body.classList.contains('sb-open'),
-      laserColor: Laser.color, laserFinger: Laser.finger, laserWidth: Laser.width, bg: S.bg, panel: S.panel, dark: S.dark, coverShape: S.coverShape, calIcon: S.calIcon, calSync: S.calSync, calCustom: S.calCustom, userPresets: S.userPresets, calPresets: S.calPresets, pattern: S.pattern, patColor: S.patColor, logo: S.logo, coverPalette: S.coverPalette, gap: S.gap, zoom: S.zoom, lineH: S.lineH, bullets: S.bullets, enStyle: S.enStyle,
+      laserColor: Laser.color, laserFinger: Laser.finger, laserWidth: Laser.width, bg: S.bg, panel: S.panel, dark: S.dark, coverShape: S.coverShape, calIcon: S.calIcon, calSync: S.calSync, calCustom: S.calCustom, userPresets: S.userPresets, calPresets: S.calPresets, pattern: S.pattern, patColor: S.patColor, logo: S.logo, coverPalette: S.coverPalette, gap: S.gap, zoom: S.zoom, lineH: S.lineH, bullets: S.bullets, figCap: S.figCap, paged: S.paged, enStyle: S.enStyle,
     }));
   } catch (e) { /* ignore */ }
 }
@@ -253,6 +256,11 @@ function viewMenu(anchor, study) {
     h('div', { class: 'pop-row' },
       h('button', { class: 'tb outlined' + (st.italic ? ' on' : ''), onclick: () => re(() => { st.italic = !st.italic; }) }, h('i', null, '기울임')),
       h('button', { class: 'tb outlined' + (st.bold ? ' on' : ''), onclick: () => re(() => { st.bold = !st.bold; }) }, h('b', null, '굵게'))),
+    h('button', { class: 'menu-item check' + (S.figCap ? ' on' : ''), title: '그림 메모(예: Figure 3.2 …)를 사진 아래 제목으로. 블록마다 따로 정하려면 편집 모드 "사진 ▾"', onclick: () => {
+      S.figCap = !S.figCap; savePrefs(); closePop();
+      if (S.note) (S.mode === 'edit' ? Editor : Study).render();
+      viewMenu(anchor, study);
+    } }, '사진 아래 그림 제목 보이기'),
     label('목록 기호 (모든 노트)'),
     [0, 1, 2].map(bulletRow),
     study ? [label('줄 간격'),
@@ -333,7 +341,7 @@ function exportSettings() {
 function importSettings(d) {
   if (!d || typeof d !== 'object') return;
   const p = d.prefs || {};
-  ['lang', 'showEn', 'bg', 'panel', 'dark', 'coverShape', 'calIcon', 'calSync', 'calCustom', 'userPresets', 'calPresets', 'pattern', 'patColor', 'coverPalette', 'gap', 'zoom', 'lineH', 'bullets'].forEach(k => { if (k in p) S[k] = p[k]; });
+  ['lang', 'showEn', 'bg', 'panel', 'dark', 'coverShape', 'calIcon', 'calSync', 'calCustom', 'userPresets', 'calPresets', 'pattern', 'patColor', 'coverPalette', 'gap', 'zoom', 'lineH', 'bullets', 'figCap'].forEach(k => { if (k in p) S[k] = p[k]; });
   if (p.logo) S.logo = Object.assign({}, p.logo);
   if (p.enStyle) S.enStyle = Object.assign({}, p.enStyle);
   if (p.laserColor) Laser.color = p.laserColor;
@@ -359,9 +367,14 @@ function infoPane() {
       '이미지가 많은 노트가 쌓이면 사이트가 느려지거나 버벅일 수 있습니다.',
       '끝난 과목은 "수업 파일로 저장"으로 따로 보관한 뒤 사이트에서 지우고, 필요할 때 다시 불러오는 방식을 권장합니다.']),
     usageEl(),
+    h('div', { class: 'pop-row', style: { margin: '12px 0 0' } },
+      h('button', { class: 'btn', title: '모든 수업·노트·이미지 + 설정', onclick: exportBackup }, '전체 백업'),
+      h('button', { class: 'btn', title: '프롬프트·캘린더·테마·타이머·버디 설정만', onclick: exportSystemBackup }, '시스템 설정만 백업'),
+      h('button', { class: 'btn', title: '백업·수업·노트·설정 파일 열기', onclick: importProjectFile }, '파일 열기')),
     sec('백업', [
       '"전체 백업"은 모든 수업·노트·이미지·AI 프롬프트 프리셋에 화면 설정·타이머 설정·스터디 버디·캘린더 기록까지 .snote.json 파일 하나로 저장합니다.',
       '수업 하나만: 편집 모드에서 수업 옆 ⋯ → "수업 파일로 저장". 노트 하나만: 노트 옆 ⋯ → "프로젝트 파일로 저장".',
+      '"시스템 설정만 백업"은 노트 없이 AI 프롬프트 프리셋·캘린더 기록·화면(테마·배경·보기 서식)·타이머·스터디 버디 설정만 저장합니다. 다른 기기에 같은 꾸미기를 옮길 때 쓰세요.',
       '정기적으로 백업해서 iCloud·구글 드라이브 등 다른 곳에도 보관하세요. 수업·노트 파일(일부만 저장)에는 화면 설정과 캘린더가 들어가지 않습니다.',
       'PDF는 다시 불러와 편집할 수 없습니다. 이어서 편집하려면 .snote.json 파일로 저장하세요.']),
     sec('파일 열기', [
@@ -409,6 +422,7 @@ const App = {
     S.courses.sort((a, b) => a.order - b.order);
     Editor.init();
     Laser.init();
+    Study.initPager();
     $('#page').addEventListener('click', e => Study.onClick(e));
     $('#sb-dim').addEventListener('click', () => this.toggleSidebar(false));
     // 크게 보기: Esc 또는 전체 화면이 풀리면 같이 끝
@@ -429,6 +443,7 @@ const App = {
     const m = location.hash.match(/^#\/(c|n)\/(.+)$/);
     S.courseId = S.noteId = S.note = S.activeBlock = null;
     S.view = location.hash === '#/cal' ? 'cal' : null;
+    S.pageIdx = 0;
     if (m && m[1] === 'n') {
       const n = S.notes.find(x => x.id === m[2]);
       if (n) { S.note = n; S.noteId = n.id; S.courseId = n.courseId; }
