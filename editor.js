@@ -153,18 +153,21 @@ const Editor = {
     const page = $('#page'), n = S.note, a = Anchor.take(S.activeBlock);
     // 다시 그리는 동안 높이가 줄어 스크롤이 위로 밀리지 않게 (이미지가 다 뜨면 풂)
     page.style.minHeight = page.offsetHeight + 'px';
-    page.className = 'paper editor' + (S.showEn ? ' show-en wide' : '');
+    const pages = S.paged ? Study.pages(n) : null;
+    if (pages) S.pageIdx = Math.max(0, Math.min(pages.length - 1, S.pageIdx || 0));
+    page.className = 'paper editor' + (S.showEn ? ' show-en wide' : '') + (pages ? ' paged' : '');
     page.style.zoom = '';
     page.innerHTML = '';
-    page.append(h('input', {
+    if (!pages || !S.pageIdx) page.append(h('input', {
       class: 'title-input', value: n.title, placeholder: '챕터 제목',
       oninput: e => { n.title = e.target.value; this.touch(); App.renderSidebar(); App.renderTopbar(); },
     }));
-    n.blocks.forEach(b => page.append(this.blockEl(b)));
+    (pages ? pages[S.pageIdx] : n.blocks).forEach(b => page.append(this.blockEl(b)));
     page.append(h('div', { class: 'add-row' },
       h('button', { class: 'btn', onclick: () => this.add('text', null, true) }, '+ 텍스트 블록'),
       h('button', { class: 'btn', onclick: () => this.add('image', null, true) }, '+ 이미지 블록'),
       h('button', { class: 'btn', onclick: () => this.add('space', null, true) }, '+ 여백 블록')));
+    if (pages) page.append(Study.pagerBar(pages.length));
     Anchor.keep(a);
   },
 
@@ -484,14 +487,21 @@ const Editor = {
     S.activeBlock = id;
     $$('#page .blk').forEach(el => el.classList.toggle('active', el.dataset.id === id));
   },
-  mut(fn) { this.commit(); fn(); this.touch(); this.render(); this.commit(); },
+  mut(fn) { this.commit(); fn(); this.followPage(); this.touch(); this.render(); this.commit(); },
+  // 페이지 넘기기 중: 고친 블록(선택한 블록)이 있는 쪽을 보여줌 (페이지 나눔을 켜면 다음 쪽으로 따라감)
+  followPage(id = S.activeBlock) {
+    if (S.paged && id && this.block(id)) S.pageIdx = Study.pageOf(id);
+  },
   add(type, afterId, atEnd, before) {
     this.commit();
     const blocks = S.note.blocks, b = newBlock(type);
-    const ref = atEnd ? null : (afterId || S.activeBlock);
+    // 페이지 넘기기 중 "맨 끝에 추가"는 지금 보는 쪽의 끝에
+    const cur = S.paged ? Study.pages(S.note)[S.pageIdx] : null;
+    const ref = atEnd ? (cur && cur.length ? cur[cur.length - 1].id : null) : (afterId || S.activeBlock);
     const i = ref ? blocks.findIndex(x => x.id === ref) : -1;
     blocks.splice(i < 0 ? blocks.length : i + (before ? 0 : 1), 0, b);
     S.activeBlock = b.id;
+    this.followPage();
     this.touch();
     this.render();
     this.commit();
@@ -671,7 +681,7 @@ const Editor = {
     };
     const nThis = own(notes), nAll = own(all);
     popover(anchor, h('div', { class: 'view-menu' },
-      h('div', { class: 'hint', style: { padding: '4px 10px 2px' } }, '모든 노트의 사진 블록에 적용. 블록에서 "사진 ▾"로 따로 정한 값은 그대로 둠.'),
+      h('div', { class: 'hint', style: { padding: '4px 10px 2px' } }, '모든 노트의 사진 블록에 적용. 블록에서 "사진 ▾"·"보기 ▾"로 따로 정한 값은 그대로 둠.'),
       label('그림 제목 (그림 메모)'), seg('cap', [[true, '보이기'], [false, '숨기기']]),
       label('사진과 글 배치'), seg('layout', [['top', '사진 위'], ['bottom', '글 위'], ['left', '사진 왼쪽'], ['right', '사진 오른쪽']]),
       label('사진 크기 (위·아래 배치)'), range('width', 100),
@@ -679,11 +689,14 @@ const Editor = {
       label('정렬 (위·아래 배치)'), seg('align', FIG_ALIGNS),
       label('여러 장일 때 보기 방식'), seg('view', [['stack', '세로로'], ['grid', '격자'], ['slide', '슬라이드']]),
       figDef('view') === 'grid' ? [label('격자 칸 수'), seg('cols', [[2, '2칸'], [3, '3칸'], [4, '4칸']])] : null,
+      label('사진 블록 글의 언어 보기 (공부 모드 · PDF)'),
+      h('div', { class: 'view-opts' }, [[null, `노트 설정 따름 (${(LANGS.find(x => x[0] === S.lang) || LANGS[0])[1]})`], ...BLOCK_LANGS].map(([v, t]) =>
+        h('button', { class: 'menu-item check' + (figDef('vlang') === v ? ' on' : ''), onclick: () => re(() => { d.vlang = v; }) }, t))),
       label('따로 정한 블록도 지금 기본값으로'),
       h('button', { class: 'menu-item', disabled: !nThis, onclick: () => { closePop(); reset(notes); } }, `이 노트에 바로 적용 (${nThis}개)`),
       h('button', { class: 'menu-item', disabled: !nAll, onclick: async () => {
         closePop();
-        if (await askConfirm('모든 노트에 적용', `모든 노트의 사진 블록 ${nAll}개에서 따로 정한 크기·정렬·배치·보기 방식·제목을 지움. 다른 노트는 되돌리기가 안 됨.`, '적용')) reset(all);
+        if (await askConfirm('모든 노트에 적용', `모든 노트의 사진 블록 ${nAll}개에서 따로 정한 크기·정렬·배치·보기 방식·제목·언어 보기를 지움. 다른 노트는 되돌리기가 안 됨.`, '적용')) reset(all);
       } }, `모든 노트에 바로 적용 (${nAll}개)`),
       h('button', { class: 'menu-item', onclick: () => re(() => { S.figDef = {}; }) }, '이미지 기본값 처음대로')));
   },
@@ -699,7 +712,7 @@ const Editor = {
     const lh = h('b', null, b.vlh ? b.vlh.toFixed(2) : '기본');
     popover(anchor, h('div', { class: 'view-menu' },
       label('이 블록만 언어 보기'),
-      [[undefined, '노트 설정 따름']].concat(BLOCK_LANGS).map(([v, t]) => h('button', { class: 'menu-item check' + (b.vlang === v ? ' on' : ''), onclick: () => re(() => { b.vlang = v; }) }, t)),
+      [[undefined, b.type === 'image' && figDef('vlang') ? `사진 기본값 따름 (${(BLOCK_LANGS.find(x => x[0] === figDef('vlang')) || [])[1]})` : '노트 설정 따름']].concat(BLOCK_LANGS).map(([v, t]) => h('button', { class: 'menu-item check' + (b.vlang === v ? ' on' : ''), onclick: () => re(() => { b.vlang = v; }) }, t)),
       label('이 블록만 글자 크기'),
       h('div', { class: 'seg pop-seg' }, BLOCK_SIZES.map(v => h('button', { class: (b.vsize || 100) === v ? 'on' : '', onclick: () => re(() => { b.vsize = v === 100 ? undefined : v; }) }, v + '%'))),
       label('이 블록만 줄 간격'),
@@ -721,6 +734,7 @@ const Editor = {
       blocks.splice(i < 0 ? blocks.length : i + 1, 0, t);
     }
     S.activeBlock = t.id;
+    this.followPage();
     this.touch();
     this.render();
     this.commit();
@@ -813,49 +827,53 @@ const Editor = {
     redoB.id = 'btn-redo';
     undoB.disabled = !this.hist.undo.length && this.snapSame();
     redoB.disabled = !this.hist.redo.length;
+    // 기능별 묶음: 묶음 단위로 줄바꿈되어 버튼이 따로 떨어지지 않음
+    const G = (title, ...kids) => h('div', { class: 'tb-group', role: 'group', 'aria-label': title }, kids);
     return [
-      undoB, redoB,
-      h('span', { class: 'tb-sep' }),
-      B(h('b', null, 'B'), '굵게', () => this.cmd('bold')),
-      B(h('i', null, 'I'), '기울임', () => this.cmd('italic')),
-      B(h('u', null, 'U'), '밑줄', () => this.cmd('underline')),
-      B(h('s', null, 'S'), '취소선', () => this.cmd('strikeThrough')),
-      h('span', { class: 'tb-sep' }),
-      B('크기 ▾', '글씨 크기', e => popMenu(e.currentTarget, FONT_SIZES.map(px => ({ label: `${px}px` + (px === 15 ? ' (기본)' : ''), fn: () => this.fontSize(px) })))),
-      B(h('span', { class: 'stack' }, '가', colorChip), '글자 색 (마지막 색 바로 적용)', () => this.cmd('foreColor', this.lastColor)),
-      B('▾', '글자 색 고르기', e => popover(e.currentTarget, sw(TEXT_COLORS, this.lastColor, c => { this.lastColor = c; colorChip.style.background = c; this.cmd('foreColor', c); }))),
-      B(h('span', { class: 'stack' }, '형광', hiChip), '형광펜 (마지막 색 바로 적용)', () => this.hilite(this.lastHilite)),
-      B('▾', '형광펜 색 고르기', e => popover(e.currentTarget, sw(HILITES, this.lastHilite, c => {
-        if (c) { this.lastHilite = c; hiChip.style.background = c; }
-        this.hilite(c || 'transparent');
-      }, true))),
-      B('서식 지움', '선택한 글자의 서식 지우기', () => this.clearFormat()),
-      h('span', { class: 'tb-sep' }),
-      B('제목', '큰 제목 (h2)', () => this.heading('h2')),
-      B('소제목', '소제목 (h3)', () => this.heading('h3')),
-      B('• 목록', '글머리 목록', () => this.cmd('insertUnorderedList')),
-      B('1. 목록', '번호 목록', () => this.cmd('insertOrderedList')),
-      B('⇤', '내어쓰기 (Shift+Tab)', () => this.cmd('outdent')),
-      B('⇥', '들여쓰기 (Tab)', () => this.cmd('indent')),
-      B('표 ▾', '표 넣기 · 표 안에 커서가 있으면 행·열 추가/삭제, 크기 조절', e => this.tableMenu(e.currentTarget)),
-      h('span', { class: 'tb-sep' }),
-      B('+ 텍스트', '선택한 블록 아래에 텍스트 블록 추가', () => this.add('text'), 'outlined'),
-      B('+ 이미지', '선택한 블록 아래에 이미지 블록 추가', () => this.add('image'), 'outlined'),
-      B('+ 여백', '선택한 블록 아래에 필기 여백 추가', () => this.add('space'), 'outlined'),
-      B('+ 목차', '제목·소제목을 모은 자동 목차를 맨 앞에 넣기', () => this.insertToc(), 'outlined'),
-      h('span', { class: 'tb-sep' }),
-      B('영어 칸', '영어 원문 칸 보이기/숨기기', () => { S.showEn = !S.showEn; savePrefs(); App.renderToolbar(); this.render(); }, 'outlined' + (S.showEn ? ' on' : '')),
-      B('보기 서식 ▾', '영어 글자 서식 (색·크기·기울임·굵게)', e => viewMenu(e.currentTarget, false)),
-      B('이미지 기본값 ▾', '모든 사진 블록의 기본 크기·정렬·배치·보기 방식·그림 제목', e => this.figDefMenu(e.currentTarget), 'fig-def'),
+      G('되돌리기', undoB, redoB),
+      G('글자 서식',
+        B(h('b', null, 'B'), '굵게', () => this.cmd('bold')),
+        B(h('i', null, 'I'), '기울임', () => this.cmd('italic')),
+        B(h('u', null, 'U'), '밑줄', () => this.cmd('underline')),
+        B(h('s', null, 'S'), '취소선', () => this.cmd('strikeThrough')),
+        B('크기 ▾', '글씨 크기', e => popMenu(e.currentTarget, FONT_SIZES.map(px => ({ label: `${px}px` + (px === 15 ? ' (기본)' : ''), fn: () => this.fontSize(px) })))),
+        h('span', { class: 'tb-split' },
+          B(h('span', { class: 'stack' }, '가', colorChip), '글자 색 (마지막 색 바로 적용)', () => this.cmd('foreColor', this.lastColor)),
+          B('▾', '글자 색 고르기', e => popover(e.currentTarget, sw(TEXT_COLORS, this.lastColor, c => { this.lastColor = c; colorChip.style.background = c; this.cmd('foreColor', c); })), 'caret')),
+        h('span', { class: 'tb-split' },
+          B(h('span', { class: 'stack' }, '형광', hiChip), '형광펜 (마지막 색 바로 적용)', () => this.hilite(this.lastHilite)),
+          B('▾', '형광펜 색 고르기', e => popover(e.currentTarget, sw(HILITES, this.lastHilite, c => {
+            if (c) { this.lastHilite = c; hiChip.style.background = c; }
+            this.hilite(c || 'transparent');
+          }, true)), 'caret')),
+        B('지우기', '선택한 글자의 서식 지우기', () => this.clearFormat())),
+      G('문단',
+        B('제목', '큰 제목 (h2)', () => this.heading('h2')),
+        B('소제목', '소제목 (h3)', () => this.heading('h3')),
+        B('•', '글머리 목록', () => this.cmd('insertUnorderedList')),
+        B('1.', '번호 목록', () => this.cmd('insertOrderedList')),
+        B('⇤', '내어쓰기 (Shift+Tab)', () => this.cmd('outdent')),
+        B('⇥', '들여쓰기 (Tab)', () => this.cmd('indent')),
+        B('표 ▾', '표 넣기 · 표 안에 커서가 있으면 행·열 추가/삭제, 크기 조절', e => this.tableMenu(e.currentTarget))),
+      G('블록 · 보기',
+        B('+ 블록 ▾', '선택한 블록 아래에 새 블록', e => popMenu(e.currentTarget, [
+          { label: '텍스트 블록', fn: () => this.add('text') },
+          { label: '이미지 블록', fn: () => this.add('image') },
+          { label: '여백 블록 (필기 공간)', fn: () => this.add('space') },
+          { label: '목차 (맨 앞에)', fn: () => this.insertToc() }]), 'outlined'),
+        B('보기 ▾', '영어 칸 · 페이지 넘기기 · 영어 글자 서식 · 목록 기호', e => viewMenu(e.currentTarget, false), 'outlined' + (S.paged ? ' on' : '')),
+        B('사진 기본값 ▾', '모든 사진 블록의 기본 크기·정렬·배치·보기 방식·그림 제목·언어 보기', e => this.figDefMenu(e.currentTarget), 'outlined fig-def')),
       h('span', { class: 'tb-space' }),
-      h('span', { id: 'save-status' }, '자동 저장 켜짐'),
-      B('불러오기 ▾', '', e => popMenu(e.currentTarget, [
-        { label: 'AI 정리 불러오기 (HTML)', fn: openImportAI },
-        { label: 'AI 프롬프트 복사', fn: openPromptModal },
-        { label: '프로젝트 파일 열기 (.snote.json)', fn: importProjectFile }]), 'outlined'),
-      B('내보내기 ▾', '', e => popMenu(e.currentTarget, [
-        { label: 'PDF로 내보내기', fn: openPdfDialog },
-        { label: '프로젝트 파일로 저장 (이어서 편집용)', fn: () => exportProject(S.note) }]), 'outlined'),
+      G('파일',
+        h('span', { id: 'save-status' }, '자동 저장 켜짐'),
+        B('파일 ▾', 'AI 정리 불러오기 · 파일 열기 · PDF · 저장', e => popMenu(e.currentTarget, [
+          { text: '불러오기' },
+          { label: 'AI 정리 불러오기 (HTML)', fn: openImportAI },
+          { label: 'AI 프롬프트 복사', fn: openPromptModal },
+          { label: '프로젝트 파일 열기 (.snote.json)', fn: importProjectFile },
+          { text: '내보내기' },
+          { label: 'PDF로 내보내기', fn: openPdfDialog },
+          { label: '프로젝트 파일로 저장 (이어서 편집용)', fn: () => exportProject(S.note) }]), 'outlined')),
     ];
   },
 };

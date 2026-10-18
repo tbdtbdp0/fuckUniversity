@@ -240,6 +240,11 @@ function viewMenu(anchor, study) {
           onchange: e => { const v = [...e.target.value.replace(/["\\]/g, '').trim()].slice(0, 2).join(''); re(() => setB(v || null)); } })));
   };
   popover(anchor, h('div', { class: 'view-menu' },
+    // 편집 모드: 화면 토글을 맨 위에
+    study ? null : [label('편집 화면'),
+      h('button', { class: 'menu-item check' + (S.showEn ? ' on' : ''), onclick: () => { closePop(); S.showEn = !S.showEn; savePrefs(); App.renderToolbar(); Editor.render(); } }, '영어 원문 칸 보이기'),
+      h('button', { class: 'menu-item check' + (S.paged ? ' on' : ''), title: '"페이지 나눔" 단위로 한 쪽씩 (← → 키 · 옆으로 밀기)', onclick: () => { closePop(); Study.setPaged(!S.paged); } }, '페이지 넘기기'),
+      h('button', { class: 'menu-item', onclick: () => { closePop(); Study.thumbs(); } }, '▦ 페이지 미리보기')],
     study ? [label('언어 보기'), LANGS.map(([v, t]) => h('button', {
       class: 'menu-item check' + (S.lang === v ? ' on' : ''),
       onclick: () => { closePop(); S.lang = v; savePrefs(); App.renderToolbar(); Study.render(); },

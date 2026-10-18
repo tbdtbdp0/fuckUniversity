@@ -72,7 +72,7 @@ const FIG_VIEWS = [['stack', '세로로 나열'], ['grid', '격자 (콜라주)']
 const FIG_LAYOUTS = [['top', '사진 위 · 글 아래'], ['bottom', '글 위 · 사진 아래'], ['left', '사진 왼쪽 · 글 오른쪽'], ['right', '글 왼쪽 · 사진 오른쪽']];
 const FIG_ALIGNS = [['left', '왼쪽'], ['center', '가운데'], ['right', '오른쪽']];
 // 이미지 기본값 (편집 툴바 "이미지 기본값 ▾", S.figDef). 블록에 값이 없으면 이걸 따름
-const FIG_DEF = { width: 80, sideWidth: 45, align: 'center', layout: 'top', view: 'stack', cols: 2, cap: false };
+const FIG_DEF = { width: 80, sideWidth: 45, align: 'center', layout: 'top', view: 'stack', cols: 2, cap: false, vlang: null }; // vlang: 사진 블록만 언어 보기 (null = 노트 설정)
 const figDef = k => S.figDef && S.figDef[k] != null ? S.figDef[k] : FIG_DEF[k];
 const figSide = b => { const l = b.layout != null ? b.layout : figDef('layout'); return l === 'left' || l === 'right'; };
 // 블록에서 실제로 쓰는 값: 블록에서 정한 값 > 기본값. 크기는 옆 배치면 sideWidth
@@ -80,7 +80,7 @@ function fv(b, k) {
   if (b[k] != null) return b[k];
   return k === 'width' ? figDef(figSide(b) ? 'sideWidth' : 'width') : figDef(k);
 }
-const FIG_KEYS = ['width', 'align', 'layout', 'view', 'cols', 'cap'];
+const FIG_KEYS = ['width', 'align', 'layout', 'view', 'cols', 'cap', 'vlang'];
 // o = { print, pending[], ctl(i) → 사진마다 얹을 편집 버튼 }
 function galleryEl(b, o = {}) {
   const ids = imgsOf(b), view = o.print && fv(b, 'view') === 'slide' ? 'grid' : fv(b, 'view');
@@ -169,7 +169,7 @@ const Study = {
   // 노트 → 읽기용 DOM 배열. o = { lang, print, expand, pending[], blocks(이 블록들만, 페이지 보기) }
   build(note, o) {
     return (o.blocks || note.blocks).map(b => {
-      const lang = b.vlang || o.lang;
+      const lang = b.vlang || (b.type === 'image' && figDef('vlang')) || o.lang;
       const el = h('div', { class: `sblk sblk-${b.type} lang-${lang}` + (o.print && b.breakBefore ? ' pb-before' : ''), dataset: { id: b.id },
         style: { fontSize: b.vsize ? b.vsize + '%' : null, lineHeight: b.vlh || null } });
       const body = [];
@@ -237,12 +237,14 @@ const Study = {
       B('›', '다음 쪽 (→)', () => this.goPage(S.pageIdx + 1), S.pageIdx >= total - 1),
       B('▦', '페이지 미리보기', () => this.thumbs()));
   },
+  // 공부·편집 모드 둘 다 페이지 넘기기
+  redraw() { (S.mode === 'edit' ? Editor : Study).render(); },
   goPage(i) {
     const n = this.pages(S.note).length;
     if (i < 0 || i >= n || i === S.pageIdx) return;
     const dir = i > S.pageIdx ? 'next' : 'prev';
     S.pageIdx = i;
-    this.render();
+    this.redraw();
     Anchor.cancel();
     $('#scroller').scrollTop = 0;
     const page = $('#page');
@@ -260,7 +262,7 @@ const Study = {
       if (this.pages(S.note).length < 2) toast('나뉜 쪽이 없음 — 편집 모드에서 블록을 고르고 "페이지 나눔"을 누르면 그 블록부터 다음 쪽');
     }
     App.renderToolbar();
-    this.render();
+    this.redraw();
     if (on) { Anchor.cancel(); $('#scroller').scrollTop = 0; }
   },
   // 쪽 미리보기 (굿노트처럼 한눈에 보고 눌러서 이동)
@@ -288,12 +290,15 @@ const Study = {
   },
   // 옆으로 밀어서 쪽 넘기기 (터치) · ← → 키
   initPager() {
-    const sc = $('#scroller'), on = () => S.paged && S.mode === 'study' && S.note && !S.view;
+    const sc = $('#scroller'), on = () => S.paged && S.note && !S.view;
     let st = null;
     sc.addEventListener('touchstart', e => {
       st = null;
       if (!on() || e.touches.length !== 1 || (Laser.on && Laser.blocked)) return;
-      if (e.target.closest('.gal-track, table, input, textarea, .pop')) return;
+      if (e.target.closest('.gal-track, table, input, textarea, .pop, .blk-tools, .gal-ctl, .space-grip')) return;
+      // 편집 중인 글 칸에서 밀면 글자 선택이 먼저
+      const ed = e.target.closest('[contenteditable]');
+      if (ed && ed.contains(document.activeElement)) return;
       const t = e.touches[0];
       st = { x: t.clientX, y: t.clientY, t: Date.now() };
     }, { passive: true });
@@ -326,9 +331,9 @@ const Study = {
 
   // 목차에서 고른 제목으로 이동 (접힌 블록이면 펼침)
   jump(t) {
-    if (S.paged && S.mode === 'study') {
+    if (S.paged) {
       const i = this.pageOf(t.blockId);
-      if (i !== S.pageIdx) { S.pageIdx = i; this.render(); Anchor.cancel(); }
+      if (i !== S.pageIdx) { S.pageIdx = i; this.redraw(); Anchor.cancel(); }
     }
     const el = $(`#page [data-id="${t.blockId}"]`);
     if (!el) return;
