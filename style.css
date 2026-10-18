@@ -320,6 +320,8 @@ body.tbl-resizing, body.tbl-resizing * { user-select: none; -webkit-user-select:
 .tbl-pick > div.on { background: var(--accent-soft); border-color: var(--accent); }
 .pop .pop-check { padding: 0 10px; font-size: 14px; }
 .pop .pop-seg { margin: 2px 8px 6px; }
+.pop .seg.wrap { display: flex; flex-wrap: wrap; }
+.pop .menu-item:disabled { opacity: .4; pointer-events: none; }
 .pop-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .pop .pop-row { padding: 4px 8px; }
 /* 공부 모드 글자 배율 */

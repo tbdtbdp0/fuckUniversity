@@ -29,7 +29,8 @@ const S = {
   zoom: prefs.zoom || 100,          // 공부 모드 글자 배율 (%)
   lineH: prefs.lineH || null,       // 공부 모드 줄 간격 (null = 기본 1.6)
   bullets: Array.isArray(prefs.bullets) ? prefs.bullets : [], // 목록 기호 [1단계, 2단계, 3단계] (없으면 기본)
-  figCap: !!prefs.figCap,           // 사진 아래 그림 제목(그림 메모) 보이기 (블록마다 따로 정할 수도)
+  // 이미지 기본값 { width, sideWidth, align, layout, view, cols, cap } (블록마다 따로 정한 값이 먼저)
+  figDef: Object.assign(prefs.figCap ? { cap: true } : {}, prefs.figDef),
   paged: !!prefs.paged,             // 공부 모드 페이지 넘기기 보기
   pageIdx: 0,
   enStyle: Object.assign({}, prefs.enStyle), // 영어 기본 서식 { color, size, italic, bold }
@@ -40,7 +41,7 @@ function savePrefs() {
   try {
     localStorage.setItem('sn-prefs', JSON.stringify({
       mode: S.mode, lang: S.lang, showEn: S.showEn, sbOpen: document.body.classList.contains('sb-open'),
-      laserColor: Laser.color, laserFinger: Laser.finger, laserWidth: Laser.width, bg: S.bg, panel: S.panel, dark: S.dark, coverShape: S.coverShape, calIcon: S.calIcon, calSync: S.calSync, calCustom: S.calCustom, userPresets: S.userPresets, calPresets: S.calPresets, pattern: S.pattern, patColor: S.patColor, logo: S.logo, coverPalette: S.coverPalette, gap: S.gap, zoom: S.zoom, lineH: S.lineH, bullets: S.bullets, figCap: S.figCap, paged: S.paged, enStyle: S.enStyle,
+      laserColor: Laser.color, laserFinger: Laser.finger, laserWidth: Laser.width, bg: S.bg, panel: S.panel, dark: S.dark, coverShape: S.coverShape, calIcon: S.calIcon, calSync: S.calSync, calCustom: S.calCustom, userPresets: S.userPresets, calPresets: S.calPresets, pattern: S.pattern, patColor: S.patColor, logo: S.logo, coverPalette: S.coverPalette, gap: S.gap, zoom: S.zoom, lineH: S.lineH, bullets: S.bullets, figDef: S.figDef, paged: S.paged, enStyle: S.enStyle,
     }));
   } catch (e) { /* ignore */ }
 }
@@ -256,8 +257,8 @@ function viewMenu(anchor, study) {
     h('div', { class: 'pop-row' },
       h('button', { class: 'tb outlined' + (st.italic ? ' on' : ''), onclick: () => re(() => { st.italic = !st.italic; }) }, h('i', null, '기울임')),
       h('button', { class: 'tb outlined' + (st.bold ? ' on' : ''), onclick: () => re(() => { st.bold = !st.bold; }) }, h('b', null, '굵게'))),
-    h('button', { class: 'menu-item check' + (S.figCap ? ' on' : ''), title: '그림 메모(예: Figure 3.2 …)를 사진 아래 제목으로. 블록마다 따로 정하려면 편집 모드 "사진 ▾"', onclick: () => {
-      S.figCap = !S.figCap; savePrefs(); closePop();
+    h('button', { class: 'menu-item check' + (figDef('cap') ? ' on' : ''), title: '그림 메모(예: Figure 3.2 …)를 사진 아래 제목으로 (이미지 기본값). 따로 정한 블록은 그대로', onclick: () => {
+      S.figDef.cap = !figDef('cap'); savePrefs(); closePop();
       if (S.note) (S.mode === 'edit' ? Editor : Study).render();
       viewMenu(anchor, study);
     } }, '사진 아래 그림 제목 보이기'),
@@ -341,7 +342,7 @@ function exportSettings() {
 function importSettings(d) {
   if (!d || typeof d !== 'object') return;
   const p = d.prefs || {};
-  ['lang', 'showEn', 'bg', 'panel', 'dark', 'coverShape', 'calIcon', 'calSync', 'calCustom', 'userPresets', 'calPresets', 'pattern', 'patColor', 'coverPalette', 'gap', 'zoom', 'lineH', 'bullets', 'figCap'].forEach(k => { if (k in p) S[k] = p[k]; });
+  ['lang', 'showEn', 'bg', 'panel', 'dark', 'coverShape', 'calIcon', 'calSync', 'calCustom', 'userPresets', 'calPresets', 'pattern', 'patColor', 'coverPalette', 'gap', 'zoom', 'lineH', 'bullets', 'figDef'].forEach(k => { if (k in p) S[k] = p[k]; });
   if (p.logo) S.logo = Object.assign({}, p.logo);
   if (p.enStyle) S.enStyle = Object.assign({}, p.enStyle);
   if (p.laserColor) Laser.color = p.laserColor;
@@ -420,6 +421,8 @@ const App = {
       return;
     }
     S.courses.sort((a, b) => a.order - b.order);
+    const old = S.notes.filter(migrateFig);
+    if (old.length) DB.putMany('notes', old).catch(() => { });
     Editor.init();
     Laser.init();
     Study.initPager();
@@ -767,7 +770,7 @@ const App = {
     return c;
   },
   async createNote(courseId, title, blocks = []) {
-    const note = { id: uid(), courseId, title, order: this.notesOf(courseId).length, blocks, createdAt: Date.now(), updatedAt: Date.now() };
+    const note = { id: uid(), courseId, title, order: this.notesOf(courseId).length, blocks, createdAt: Date.now(), updatedAt: Date.now(), figV: 2 };
     S.notes.push(note);
     await DB.put('notes', note);
     return note;
@@ -996,6 +999,19 @@ const App = {
     })));
   },
 };
+
+// 예전 노트: 이미지 블록마다 박혀 있던 크기 80 · 가운데 정렬은 "따로 정한 값"이 아니라 기본값이었으므로 지움
+// (한 번만: note.figV). 바뀌었으면 true
+function migrateFig(n) {
+  if (n.figV >= 2) return false;
+  n.blocks.forEach(b => {
+    if (b.type !== 'image') return;
+    if (b.width === 80) delete b.width;
+    if (b.align === 'center') delete b.align;
+  });
+  n.figV = 2;
+  return true;
+}
 
 // 메뉴 항목에서 다시 메뉴를 여는 경우 (닫힘 처리 뒤에 열리도록)
 function popMenuLater(anchor, items) { setTimeout(() => popMenu(anchor, items), 0); }

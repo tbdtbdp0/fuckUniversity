@@ -70,18 +70,28 @@ function tocEl(note, onPick) {
 /* ---------- 이미지 블록: 사진 여러 장 (세로로 · 격자 · 슬라이드) + 글과의 배치 ---------- */
 const FIG_VIEWS = [['stack', '세로로 나열'], ['grid', '격자 (콜라주)'], ['slide', '슬라이드']];
 const FIG_LAYOUTS = [['top', '사진 위 · 글 아래'], ['bottom', '글 위 · 사진 아래'], ['left', '사진 왼쪽 · 글 오른쪽'], ['right', '글 왼쪽 · 사진 오른쪽']];
-const figSide = b => b.layout === 'left' || b.layout === 'right';
+const FIG_ALIGNS = [['left', '왼쪽'], ['center', '가운데'], ['right', '오른쪽']];
+// 이미지 기본값 (편집 툴바 "이미지 기본값 ▾", S.figDef). 블록에 값이 없으면 이걸 따름
+const FIG_DEF = { width: 80, sideWidth: 45, align: 'center', layout: 'top', view: 'stack', cols: 2, cap: false };
+const figDef = k => S.figDef && S.figDef[k] != null ? S.figDef[k] : FIG_DEF[k];
+const figSide = b => { const l = b.layout != null ? b.layout : figDef('layout'); return l === 'left' || l === 'right'; };
+// 블록에서 실제로 쓰는 값: 블록에서 정한 값 > 기본값. 크기는 옆 배치면 sideWidth
+function fv(b, k) {
+  if (b[k] != null) return b[k];
+  return k === 'width' ? figDef(figSide(b) ? 'sideWidth' : 'width') : figDef(k);
+}
+const FIG_KEYS = ['width', 'align', 'layout', 'view', 'cols', 'cap'];
 // o = { print, pending[], ctl(i) → 사진마다 얹을 편집 버튼 }
 function galleryEl(b, o = {}) {
-  const ids = imgsOf(b), view = o.print && b.view === 'slide' ? 'grid' : (b.view || 'stack');
+  const ids = imgsOf(b), view = o.print && fv(b, 'view') === 'slide' ? 'grid' : fv(b, 'view');
   const items = ids.map((id, i) => {
     const img = Images.img(id, { alt: b.figLabel || '' });
     if (o.pending) o.pending.push(img._ready);
     return h('div', { class: 'gal-item' }, img, o.ctl ? o.ctl(i) : null);
   });
   const box = h('div', { class: 'gal gal-' + view });
-  box.style.setProperty('--cols', Math.min(b.cols || 2, ids.length || 1));
-  if (!figSide(b)) box.style.width = (b.width || 80) + '%';
+  box.style.setProperty('--cols', Math.min(fv(b, 'cols'), ids.length || 1));
+  if (!figSide(b)) box.style.width = fv(b, 'width') + '%';
   if (view === 'slide' && ids.length > 1) {
     const track = h('div', { class: 'gal-track' }, items), cnt = h('span', { class: 'gal-cnt' }, `1 / ${ids.length}`);
     const at = () => Math.round(track.scrollLeft / Math.max(1, track.clientWidth));
@@ -90,15 +100,15 @@ function galleryEl(b, o = {}) {
     const nav = (d, t) => h('button', { class: 'gal-nav', title: d < 0 ? '이전 사진' : '다음 사진', onmousedown: e => e.preventDefault(), onclick: e => { e.stopPropagation(); go(d); } }, t);
     box.append(track, h('div', { class: 'gal-bar' }, nav(-1, '‹'), cnt, nav(1, '›')));
   } else box.append(...items);
-  return h('div', { class: 'fig', style: { textAlign: figSide(b) ? 'center' : (b.align || 'center') } }, box);
+  return h('div', { class: 'fig', style: { textAlign: figSide(b) ? 'center' : fv(b, 'align') } }, box);
 }
-// 사진과 글을 b.layout대로 배치. 반환은 노드 배열
+// 사진과 글을 배치 설정대로. 반환은 노드 배열
 function figLayout(b, fig, text) {
-  const lay = b.layout || 'top';
+  const lay = fv(b, 'layout');
   if (!text || !fig || lay === 'top') return [fig, text];
   if (lay === 'bottom') return [text, fig];
   const box = h('div', { class: 'fig-lay lay-' + lay }, fig, text);
-  box.style.setProperty('--fig-w', (b.width || 45) + '%');
+  box.style.setProperty('--fig-w', fv(b, 'width') + '%');
   return [box];
 }
 
@@ -141,8 +151,8 @@ const ZOOMS = [80, 90, 100, 115, 130, 150, 175, 200];
 // 블록마다 따로 보기 설정: b.vlang(언어 보기) · b.vsize(글자 크기 %) · b.vlh(줄 간격). 없으면 노트 전체 설정을 따름
 const BLOCK_LANGS = [['ko', '한국어만'], ['click', '한국어 (눌러서 영어)'], ['both', '한 + 영'], ['split', '좌우 분할'], ['en', 'English']];
 const BLOCK_SIZES = [80, 90, 100, 110, 125, 150];
-// 그림 제목(그림 메모) 보이기: 블록 설정(b.cap) > 전체 설정(S.figCap)
-const capOn = b => b.cap != null ? b.cap : !!S.figCap;
+// 그림 제목(그림 메모) 보이기: 블록 설정(b.cap) > 이미지 기본값
+const capOn = b => !!fv(b, 'cap');
 
 const Study = {
   textPart(b, lang) {

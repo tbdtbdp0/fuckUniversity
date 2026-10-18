@@ -92,7 +92,7 @@ function buildPrompt(course, chapter) {
 /* ---------- AI HTML → 블록 ---------- */
 function newBlock(type, extra) {
   const b = { id: uid(), type, ko: '', en: '' };
-  if (type === 'image') Object.assign(b, { image: null, images: [], width: 80, align: 'center', figLabel: '' });
+  if (type === 'image') Object.assign(b, { image: null, images: [], figLabel: '' }); // 크기·정렬 등은 비워 두면 이미지 기본값을 따름
   if (type === 'space') Object.assign(b, { height: 140, pattern: 'blank' });
   return Object.assign(b, extra);
 }
@@ -509,6 +509,7 @@ async function applyImport(packs, plan) {
   }
   const done = new Map();
   for (const p of packs) for (const { note, course } of p.items) {
+    migrateFig(note);
     const c = await App.ensureCourse(course ? course.name : '미분류', course && course.color);
     if (course && course.coverImg && !c.coverImg) { c.coverImg = course.coverImg; await DB.put('courses', c); }
     const exist = S.notes.find(n => n.id === note.id);

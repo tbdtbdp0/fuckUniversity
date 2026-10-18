@@ -597,7 +597,7 @@ const Editor = {
     this.mut(() => { b.type = 'text'; ['image', 'images', 'width', 'align', 'figLabel', 'view', 'cols', 'layout', 'cap'].forEach(k => delete b[k]); });
     toast('텍스트 블록으로 바꿈 (↶ 로 되돌리기)');
   },
-  // 사진 ▾ : 보기 방식 · 격자 칸 수 · 글 배치 · 크기 · 정렬 · 그림 메모
+  // 사진 ▾ : 이 블록만 (비워 두면 이미지 기본값을 따름)
   figMenu(anchor, b) {
     const re = fn => {
       closePop();
@@ -606,31 +606,34 @@ const Editor = {
       if (a) this.figMenu(a, b);
     };
     const label = t => h('div', { class: 'menu-label' }, t);
-    const opt = (cur, list, set) => list.map(([v, t]) => h('button', { class: 'menu-item check' + (cur === v ? ' on' : ''), onclick: () => re(() => set(v)) }, t));
-    const n = imgsOf(b).length, side = figSide(b), wVal = h('b', null, (b.width || 80) + '%');
+    const name = (list, v) => (list.find(x => x[0] === v) || [, v])[1];
+    // 첫 칸 "기본값" = 블록 값 지우기
+    const opt = (k, list) => [[undefined, `기본값 (${name(list, figDef(k))})`], ...list].map(([v, t]) =>
+      h('button', { class: 'menu-item check' + (b[k] === v ? ' on' : ''), onclick: () => re(() => {
+        const was = figSide(b);
+        if (v === undefined) delete b[k]; else b[k] = v;
+        if (k === 'layout' && was !== figSide(b)) delete b.width; // 위·아래 ↔ 옆: 그 배치의 기본 크기로
+      }) }, t));
+    const n = imgsOf(b).length, side = figSide(b), wVal = h('b', null, fv(b, 'width') + '%' + (b.width == null ? ' (기본)' : ''));
+    const own = FIG_KEYS.filter(k => b[k] != null);
     popover(anchor, h('div', { class: 'view-menu' },
-      label('그림 메모 (어떤 그림을 넣을지)'),
+      label('그림 메모 (어떤 그림을 넣을지 · 그림 제목)'),
       h('div', { class: 'pop-row' }, h('input', { class: 'inp', type: 'text', value: b.figLabel || '', placeholder: '예: Figure 3.2 (슬라이드 14)', oninput: e => {
         b.figLabel = e.target.value;
         const z = $(`#page .blk[data-id="${b.id}"] .dropzone b`);
         if (z) z.textContent = b.figLabel || 'Figure';
         this.touch();
       } })),
-      h('div', { class: 'seg pop-seg' }, [[undefined, `기본 (${S.figCap ? '보임' : '숨김'})`], [true, '제목 보이기'], [false, '숨기기']].map(([v, t]) =>
-        h('button', { class: b.cap === v ? 'on' : '', title: '그림 메모를 사진 아래 제목으로 (공부 모드 · PDF). 기본은 "보기 서식"에서 전체로 정함', onclick: () => re(() => { b.cap = v; }) }, t))),
+      own.length ? h('div', { class: 'hint', style: { padding: '0 10px 4px' } }, '✓ 표시가 "기본값"이 아닌 항목은 이 블록만 따로 정한 것') : null,
+      label('그림 제목'),
+      opt('cap', [[true, '보이기'], [false, '숨기기']]),
       label(`사진 보기 방식` + (n > 1 ? ` (${n}장)` : '')),
-      opt(b.view || 'stack', FIG_VIEWS, v => { b.view = v === 'stack' ? undefined : v; }),
-      (b.view === 'grid') ? h('div', { class: 'seg pop-seg' }, [2, 3, 4].map(c => h('button', { class: (b.cols || 2) === c ? 'on' : '', onclick: () => re(() => { b.cols = c === 2 ? undefined : c; }) }, `${c}칸`))) : null,
+      opt('view', FIG_VIEWS),
+      fv(b, 'view') === 'grid' ? h('div', { class: 'seg pop-seg' }, [2, 3, 4].map(c => h('button', { class: fv(b, 'cols') === c ? 'on' : '', onclick: () => re(() => { b.cols = c; }) }, `${c}칸`))) : null,
       label('사진과 글 배치'),
-      opt(b.layout || 'top', FIG_LAYOUTS, v => {
-        const was = figSide(b);
-        b.layout = v === 'top' ? undefined : v;
-        // 옆에 둘 때는 사진 칸을 반 정도로
-        if (figSide(b) && !was && (b.width || 80) > 60) b.width = 45;
-        if (!figSide(b) && was && (b.width || 80) < 40) b.width = 80;
-      }),
+      opt('layout', FIG_LAYOUTS),
       label(side ? '사진 칸 너비' : '사진 크기'),
-      h('div', { class: 'pop-range' }, h('input', { type: 'range', min: 10, max: side ? 80 : 100, value: b.width || 80, oninput: e => {
+      h('div', { class: 'pop-range' }, h('input', { type: 'range', min: 10, max: side ? 80 : 100, value: fv(b, 'width'), oninput: e => {
         b.width = +e.target.value;
         wVal.textContent = b.width + '%';
         const el = $(`#page .blk[data-id="${b.id}"]`);
@@ -640,19 +643,49 @@ const Editor = {
         }
         this.touch();
       } }), wVal),
-      side ? null : h('div', { class: 'seg pop-seg' }, ['left', 'center', 'right'].map(a => h('button', { class: (b.align || 'center') === a ? 'on' : '', onclick: () => re(() => { b.align = a; }) }, { left: '왼쪽', center: '가운데', right: '오른쪽' }[a]))),
-      h('button', { class: 'menu-item', onclick: () => { closePop(); this.addImages(b); } }, '+ 사진 추가 (여러 장)'),
-      label('이 노트의 모든 사진 블록 한꺼번에'),
-      h('div', { class: 'seg pop-seg' }, ['left', 'center', 'right'].map(a => h('button', { title: '모든 사진 블록 정렬', onclick: () => re(() => this.allFigs(x => { x.align = a; })) }, { left: '모두 왼쪽', center: '모두 가운데', right: '모두 오른쪽' }[a]))),
-      h('button', { class: 'menu-item', title: '크기·정렬·보기 방식·격자 칸 수·글 배치·제목 보이기를 이 블록과 똑같이', onclick: () => re(() => {
-        const keep = ['width', 'align', 'view', 'cols', 'layout', 'cap'];
-        this.allFigs(x => keep.forEach(k => { if (b[k] === undefined) delete x[k]; else x[k] = b[k]; }));
-      }) }, '이 블록 설정을 모든 사진 블록에 적용')));
+      side ? null : [label('정렬'), opt('align', FIG_ALIGNS)],
+      own.length ? h('button', { class: 'menu-item', title: '이 블록에서 따로 정한 크기·정렬·배치·보기 방식·제목을 지우고 기본값을 따르게', onclick: () => re(() => FIG_KEYS.forEach(k => delete b[k])) }, '↺ 이 블록을 이미지 기본값으로') : null,
+      h('button', { class: 'menu-item', onclick: () => { closePop(); this.addImages(b); } }, '+ 사진 추가 (여러 장)')));
   },
-  allFigs(fn) {
-    const list = S.note.blocks.filter(x => x.type === 'image');
-    list.forEach(fn);
-    toast(`사진 블록 ${list.length}개에 적용`);
+  // 툴바 "이미지 기본값 ▾": 새 사진 블록과, 따로 정하지 않은 블록 모두에 적용
+  figDefMenu(anchor) {
+    const d = S.figDef, label = t => h('div', { class: 'menu-label' }, t);
+    const apply = () => { savePrefs(); this.commit(); this.render(); };
+    const re = fn => { fn(); apply(); closePop(); const a = $('#toolbar .fig-def'); if (a) this.figDefMenu(a); };
+    const seg = (k, list) => h('div', { class: 'seg pop-seg wrap' }, list.map(([v, t]) => h('button', { class: figDef(k) === v ? 'on' : '', onclick: () => re(() => { d[k] = v; }) }, t)));
+    const range = (k, max) => {
+      const val = h('b', null, figDef(k) + '%');
+      return h('div', { class: 'pop-range' }, h('input', { type: 'range', min: 10, max, value: figDef(k),
+        oninput: e => { d[k] = +e.target.value; val.textContent = d[k] + '%'; }, onchange: apply }), val);
+    };
+    const notes = [S.note], all = S.notes;
+    const own = list => list.reduce((a, n) => a + n.blocks.filter(b => b.type === 'image' && FIG_KEYS.some(k => b[k] != null)).length, 0);
+    const reset = list => {
+      this.commit();
+      let c = 0;
+      list.forEach(n => n.blocks.forEach(b => { if (b.type === 'image' && FIG_KEYS.some(k => b[k] != null)) { FIG_KEYS.forEach(k => delete b[k]); c++; if (n !== S.note) DB.put('notes', n); } }));
+      this.touch();
+      this.render();
+      this.commit();
+      toast(`사진 블록 ${c}개를 기본값으로 맞춤 (↶ 되돌리기는 지금 노트만)`);
+    };
+    const nThis = own(notes), nAll = own(all);
+    popover(anchor, h('div', { class: 'view-menu' },
+      h('div', { class: 'hint', style: { padding: '4px 10px 2px' } }, '모든 노트의 사진 블록에 적용. 블록에서 "사진 ▾"로 따로 정한 값은 그대로 둠.'),
+      label('그림 제목 (그림 메모)'), seg('cap', [[true, '보이기'], [false, '숨기기']]),
+      label('사진과 글 배치'), seg('layout', [['top', '사진 위'], ['bottom', '글 위'], ['left', '사진 왼쪽'], ['right', '사진 오른쪽']]),
+      label('사진 크기 (위·아래 배치)'), range('width', 100),
+      label('사진 칸 너비 (옆 배치)'), range('sideWidth', 80),
+      label('정렬 (위·아래 배치)'), seg('align', FIG_ALIGNS),
+      label('여러 장일 때 보기 방식'), seg('view', [['stack', '세로로'], ['grid', '격자'], ['slide', '슬라이드']]),
+      figDef('view') === 'grid' ? [label('격자 칸 수'), seg('cols', [[2, '2칸'], [3, '3칸'], [4, '4칸']])] : null,
+      label('따로 정한 블록도 지금 기본값으로'),
+      h('button', { class: 'menu-item', disabled: !nThis, onclick: () => { closePop(); reset(notes); } }, `이 노트에 바로 적용 (${nThis}개)`),
+      h('button', { class: 'menu-item', disabled: !nAll, onclick: async () => {
+        closePop();
+        if (await askConfirm('모든 노트에 적용', `모든 노트의 사진 블록 ${nAll}개에서 따로 정한 크기·정렬·배치·보기 방식·제목을 지움. 다른 노트는 되돌리기가 안 됨.`, '적용')) reset(all);
+      } }, `모든 노트에 바로 적용 (${nAll}개)`),
+      h('button', { class: 'menu-item', onclick: () => re(() => { S.figDef = {}; }) }, '이미지 기본값 처음대로')));
   },
   // 이 블록만 따로 보기 설정 (공부 모드 · PDF)
   blockViewMenu(anchor, b) {
@@ -813,6 +846,7 @@ const Editor = {
       h('span', { class: 'tb-sep' }),
       B('영어 칸', '영어 원문 칸 보이기/숨기기', () => { S.showEn = !S.showEn; savePrefs(); App.renderToolbar(); this.render(); }, 'outlined' + (S.showEn ? ' on' : '')),
       B('보기 서식 ▾', '영어 글자 서식 (색·크기·기울임·굵게)', e => viewMenu(e.currentTarget, false)),
+      B('이미지 기본값 ▾', '모든 사진 블록의 기본 크기·정렬·배치·보기 방식·그림 제목', e => this.figDefMenu(e.currentTarget), 'fig-def'),
       h('span', { class: 'tb-space' }),
       h('span', { id: 'save-status' }, '자동 저장 켜짐'),
       B('불러오기 ▾', '', e => popMenu(e.currentTarget, [
