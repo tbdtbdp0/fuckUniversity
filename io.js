@@ -18,6 +18,8 @@ function buildPrompt(course, chapter) {
 4. 수업 자료의 내용을 임의로 변형·추가·삭제하지 말 것. 자료에 없는 내용 지어내지 말 것.
 5. 도표·그래프·그림 등 figure도 이론의 예시·근거 자료로서 포함. figure가 무엇을 보여주는지 해석을 반드시 작성.
    figure 사진 자체는 내가 나중에 직접 삽입하므로, 아래 형식의 figure 블록으로 자리만 만들고 해석을 적을 것.
+   - figure 블록은 실제 사진·그래프·도식·그림에만 사용. 글만 있는 슬라이드, 목록, 표는 figure로 만들지 말고 텍스트 블록에 옮길 것. 표는 <table>로 직접 작성.
+   - 한 가지 내용을 함께 설명하는 여러 그림(예: Figure 3.2a·b, 실험 전·후)은 figure 블록 하나로 묶고, data-caption에 모두 적을 것.
 6. 줄바꿈 원칙:
    - 화살표(→)로 이어지는 흐름은 각 단계를 <br>로 줄바꿈해서 한눈에 들어오게 표기. 단, 흐름 전체가 한 줄에 들어올 만큼 짧으면 줄바꿈 없이 유지.
    - 한 bullet 안에 문장이 여러 개이고 자동 줄바꿈이 생길 만큼 길면, 두 번째 문장부터는 <br>로 다음 줄에 배치.
@@ -32,6 +34,8 @@ function buildPrompt(course, chapter) {
   (1) 텍스트 블록: <section data-block="text">
       - 소주제 하나 = 블록 하나. (소제목 <h3> + 그 아래 <ul> 목록 정도의 크기)
       - 큰 단원 제목은 <h2>만 들어 있는 별도의 텍스트 블록으로.
+        이 큰 단원 제목 블록에는 data-break="1"을 붙일 것 (첫 단원은 제외). 사이트가 여기서 쪽을 나눔.
+        예: <section data-block="text" data-break="1">
       - 안에 <div data-lang="ko">정리한 한국어 노트</div> 와 <div data-lang="en">대응하는 영어 원문</div> 을 둘 다 넣을 것.
       - en에는 번역이 아니라 수업 자료의 영어 원문 표현을 넣을 것. (자료가 한국어뿐이면 en은 생략)
       - 매우 중요: ko와 en은 줄(<h2>,<h3>,<h4>,<p>,<li>,<td>) 개수·순서·중첩 구조가 1:1로 똑같아야 함. 사이트가 같은 순번의 줄끼리 짝지어 보여줌.
@@ -39,8 +43,9 @@ function buildPrompt(course, chapter) {
       - 예시, 부가 설명, 덜 중요한 자료, 또는 가려놓고 암기할 내용은 data-fold="접었을 때 보일 제목" 속성을 붙일 것.
         예: <section data-block="text" data-fold="예시: 적혈구 실험">
 
-  (2) figure 블록: <section data-block="figure" data-caption="Figure 3.2 (슬라이드 14) 삼투압 그래프">
-      - data-caption에는 내가 어떤 그림을 넣어야 하는지 찾을 수 있게 그림 번호·슬라이드 번호·간단한 이름을 적을 것.
+  (2) figure 블록: <section data-block="figure" data-caption="Figure 3.2 삼투압 그래프 (슬라이드 14)">
+      - data-caption은 사진 아래 그림 제목으로도 쓰이므로 "그림 번호 → 그림 이름 → (슬라이드·페이지 위치)" 순서로 적을 것.
+        내가 어떤 그림을 넣어야 하는지 찾을 수 있게 위치는 반드시 포함. 여러 그림을 묶었으면 예: "Figure 3.2a·b 삼투압 실험 전·후 (슬라이드 14–15)"
       - 안에는 텍스트 블록과 똑같이 <div data-lang="ko">해석</div> <div data-lang="en">원문 캡션·설명</div>.
 
   (3) 여백 블록: <section data-block="space" data-height="120"></section>
@@ -75,13 +80,21 @@ function buildPrompt(course, chapter) {
       </ul>
     </div>
   </section>
-  <section data-block="figure" data-caption="Figure 3.4 (슬라이드 12) 용액 농도에 따른 적혈구 변화">
+  <section data-block="figure" data-caption="Figure 3.4 용액 농도에 따른 적혈구 변화 (슬라이드 12)">
     <div data-lang="ko"><ul><li>고장액: 물 유출 → 세포 수축(crenation)</li><li>저장액: 물 유입 → 용혈(lysis)</li></ul></div>
     <div data-lang="en"><ul><li>Hypertonic: water leaves the cell, which shrivels (crenation).</li><li>Hypotonic: water enters the cell, which bursts (lysis).</li></ul></div>
   </section>
   <section data-block="text" data-fold="예시: 식물 세포">
     <div data-lang="ko"><ul><li>저장액에서 팽압(turgor pressure) 발생 → 정상 상태</li></ul></div>
     <div data-lang="en"><ul><li>In a hypotonic solution turgor pressure builds up, which is the normal state.</li></ul></div>
+  </section>
+  <section data-block="text" data-break="1">
+    <div data-lang="ko"><h2>2. 능동 수송(Active transport)</h2></div>
+    <div data-lang="en"><h2>2. Active transport</h2></div>
+  </section>
+  <section data-block="text">
+    <div data-lang="ko"><h3>나트륨-칼륨 펌프(Na⁺/K⁺ pump)</h3><ul><li>ATP 소모 → 농도 기울기 거슬러 이온 이동</li></ul></div>
+    <div data-lang="en"><h3>Sodium-potassium pump</h3><ul><li>Uses ATP to move ions against their concentration gradients.</li></ul></div>
   </section>
 </article>
 </body></html>
@@ -120,6 +133,8 @@ function parseAIHtml(text) {
       });
       if (b.type === 'image') b.figLabel = s.dataset.caption || '';
       if (s.hasAttribute('data-fold')) { b.fold = true; b.foldLabel = s.dataset.fold || ''; b.collapsed = true; }
+      // 큰 단원 시작: 여기서 쪽 나눔 (맨 첫 블록은 무시)
+      if (s.hasAttribute('data-break') && s.dataset.break !== '0' && out.blocks.length) b.breakBefore = true;
       out.blocks.push(b);
     }
   } else {
